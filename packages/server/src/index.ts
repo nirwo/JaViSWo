@@ -1,5 +1,8 @@
 import { serve } from '@hono/node-server';
-import { loadConfig, recentsPath } from './config.js';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { loadConfig } from './config.js';
+import { openDb, closeDb } from './db.js';
 import { buildHttpApp } from './http.js';
 import { AgentRegistry } from './registry.js';
 import { RecentsStore } from './recents.js';
@@ -7,12 +10,22 @@ import { AgentSupervisor } from './supervisor.js';
 import { attachWebSocket } from './ws.js';
 
 const config = loadConfig();
-const registry = new AgentRegistry({ tailCap: 500 });
+
+const dbPath = join(homedir(), '.cockpit', 'state.db');
+const db = openDb(dbPath);
+
+// Any agent that was 'running' when the cockpit last died had its subprocess
+// killed with it. Mark them idle so the UI can resume them.
+db.exec(`UPDATE agents SET status = 'idle' WHERE status = 'running'`);
+
+const registry = new AgentRegistry(db, { tailCap: 5000 });
 
 let broadcast: (env: import('@cockpit/shared').Envelope) => void = () => {};
 let clientCount: () => number = () => 0;
 const supervisor = new AgentSupervisor(registry, (env) => broadcast(env));
-const recents = new RecentsStore(recentsPath);
+
+const legacyRecentsPath = join(homedir(), '.cockpit', 'recents.json');
+const recents = new RecentsStore(db, 10, legacyRecentsPath);
 
 const app = buildHttpApp(config, registry, supervisor, recents, () => clientCount());
 
@@ -26,3 +39,12 @@ const server = serve(
 const ws = attachWebSocket(server as unknown as import('node:http').Server, registry);
 broadcast = ws.broadcast;
 clientCount = ws.clientCount;
+
+process.on('SIGTERM', () => {
+  closeDb();
+  process.exit(0);
+});
+process.on('SIGINT', () => {
+  closeDb();
+  process.exit(0);
+});
