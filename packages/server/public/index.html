@@ -628,6 +628,25 @@
         #newAgentBtn .btn-label { display: none; }
         .hud-readout { display: none; }
       }
+
+      /* ── User bubble ── */
+      .bubble.kind-user { border: 1px solid rgba(148,163,184,0.5); background: rgba(148,163,184,0.06); margin-left: 0; margin-right: auto; max-width: 70%; }
+      .bubble.kind-user .bubble-header { color: var(--muted); }
+      .bubble.kind-user .bubble-body { color: var(--text); }
+
+      /* ── Turn separator ── */
+      .turn-sep { display: flex; align-items: center; gap: 8px; margin: 16px 0 8px; opacity: 0.6; }
+      .turn-sep-line { flex: 1; height: 1px; background: linear-gradient(90deg, transparent, var(--border), transparent); }
+      .turn-sep-label { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10px; letter-spacing: 3px; color: var(--muted); }
+
+      /* ── Per-tile reply input ── */
+      .tile-reply { display: none; padding: 8px 12px; border-top: 1px solid var(--border); background: var(--bg); gap: 8px; align-items: flex-end; }
+      .tile-reply[data-active="true"] { display: flex; }
+      .tile-reply textarea { flex: 1; min-height: 36px; max-height: 120px; padding: 8px 10px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 6px; font: inherit; font-size: 12px; resize: none; }
+      .tile-reply textarea:focus { outline: none; border-color: var(--accent); }
+      .tile-reply button { background: transparent; color: var(--accent); border: 1px solid rgba(94,234,212,0.4); border-radius: 999px; width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; }
+      .tile-reply button:hover:not(:disabled) { background: rgba(94,234,212,0.12); }
+      .tile-reply button:disabled { opacity: 0.4; cursor: not-allowed; }
     </style>
   </head>
   <body>
@@ -1035,18 +1054,33 @@
         cornersBottom.className = 'tile-corners-bottom';
         cornersBottom.setAttribute('aria-hidden', 'true');
 
-        tile.append(tileHeader, streamEl, hint, scanLine, cornersBottom);
+        // Per-tile reply form (hidden until agent completes)
+        const replyForm = document.createElement('form');
+        replyForm.className = 'tile-reply';
+        replyForm.dataset.agentId = agentId;
+        const replyTextarea = document.createElement('textarea');
+        replyTextarea.className = 'tile-reply-input';
+        replyTextarea.placeholder = 'Reply… ⌘↵ to send';
+        const replyBtn = document.createElement('button');
+        replyBtn.type = 'submit';
+        const sendIcon = iconEl('send', 14);
+        if (sendIcon) replyBtn.appendChild(sendIcon);
+        replyForm.append(replyTextarea, replyBtn);
+
+        tile.append(tileHeader, streamEl, replyForm, hint, scanLine, cornersBottom);
 
         tile.addEventListener('click', (ev) => {
           if (ev.target.closest('.bubble')) return;
+          if (ev.target.closest('.tile-reply')) return;
           if (focusedAgentId === agentId) return;
           focusAgent(agentId);
         });
 
         stage.appendChild(tile);
 
-        entry = { tile, streamEl, name: nameEl.textContent, status: 'running', tokens: 0, cost: 0 };
+        entry = { tile, streamEl, name: nameEl.textContent, status: 'running', tokens: 0, cost: 0, turn: 1 };
         agents.set(agentId, entry);
+        setupTileReply(tile, agentId);
         updateStageCount();
         updateTopbar();
         return entry;
@@ -1241,6 +1275,9 @@
           entry.cost = cost;
           entry.status = 'completed';
           updateTopbar();
+          // Show reply form
+          const replyFormResult = entry.tile.querySelector('.tile-reply');
+          if (replyFormResult) replyFormResult.dataset.active = 'true';
           return;
         }
         if (env.kind === 'exit') {
@@ -1253,6 +1290,11 @@
             metaEl.textContent = `exit ${code}`;
             entry.status = 'errored';
             updateTopbar();
+          }
+          // Show reply form on exit regardless of code (session may still be resumable)
+          const replyFormExit = entry.tile.querySelector('.tile-reply');
+          if (replyFormExit && replyFormExit.dataset.active !== 'true') {
+            replyFormExit.dataset.active = 'true';
           }
           return;
         }
@@ -1392,6 +1434,111 @@
         const THRESHOLD = 50;
         const atBottom = tileStream.scrollTop + tileStream.clientHeight >= tileStream.scrollHeight - THRESHOLD;
         if (atBottom) tileStream.scrollTop = tileStream.scrollHeight;
+      }
+
+      // ── Turn separator ──────────────────────────────────────────────────────
+      function addTurnSeparator(agentId) {
+        const entry = agents.get(agentId);
+        if (!entry) return;
+        entry.turn = (entry.turn ?? 1) + 1;
+        const sep = document.createElement('div');
+        sep.className = 'turn-sep';
+        sep.dataset.turn = String(entry.turn);
+        const lineA = document.createElement('span');
+        lineA.className = 'turn-sep-line';
+        const label = document.createElement('span');
+        label.className = 'turn-sep-label';
+        label.textContent = 'TURN ' + String(entry.turn);
+        const lineB = document.createElement('span');
+        lineB.className = 'turn-sep-line';
+        sep.append(lineA, label, lineB);
+        entry.streamEl.appendChild(sep);
+        autoScroll(entry.streamEl);
+      }
+
+      // ── User bubble ─────────────────────────────────────────────────────────
+      function addUserBubble(agentId, promptText) {
+        const entry = agents.get(agentId);
+        if (!entry) return;
+        // Close any open assistant text card so next streaming starts fresh
+        agentTextCard.set(agentId, null);
+        const card = document.createElement('div');
+        card.className = 'bubble kind-user';
+        const header = document.createElement('div');
+        header.className = 'bubble-header';
+        const iconNode = iconEl('agent', 12);
+        if (iconNode) header.appendChild(iconNode);
+        const labelNode = document.createElement('span');
+        labelNode.textContent = ' you';
+        labelNode.style.marginLeft = '4px';
+        header.appendChild(labelNode);
+        card.appendChild(header);
+        const body = document.createElement('div');
+        body.className = 'bubble-body';
+        body.textContent = String(promptText ?? '');
+        card.appendChild(body);
+        entry.streamEl.appendChild(card);
+        autoScroll(entry.streamEl);
+      }
+
+      // ── Per-tile reply form setup ────────────────────────────────────────────
+      function setupTileReply(tile, agentId) {
+        const replyForm = tile.querySelector('.tile-reply');
+        if (!replyForm) return;
+        const input = replyForm.querySelector('.tile-reply-input');
+        const btn = replyForm.querySelector('button');
+
+        replyForm.addEventListener('submit', async (ev) => {
+          ev.preventDefault();
+          const prompt = input.value.trim();
+          if (!prompt) return;
+          btn.disabled = true;
+          input.disabled = true;
+          try {
+            const r = await fetch('/api/agents/' + agentId + '/turn', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ prompt }),
+            });
+            if (!r.ok) {
+              const bodyErr = await r.json().catch(() => null);
+              const errEnv = { kind: 'stderr', agentId, payload: { text: JSON.stringify(bodyErr) } };
+              const entry = agents.get(agentId);
+              if (entry) renderSlimRow(errEnv, JSON.stringify(bodyErr), entry.streamEl);
+              return;
+            }
+            // Add turn separator + user bubble immediately
+            addTurnSeparator(agentId);
+            addUserBubble(agentId, prompt);
+            // Hide the reply form while the new turn streams in
+            replyForm.dataset.active = 'false';
+            input.value = '';
+            input.style.height = '';
+            // Update tile status to "running" optimistically
+            const dot = tile.querySelector('.status-hud');
+            if (dot) {
+              dot.className = 'status-hud running';
+              dot.setAttribute('aria-label', 'running');
+            }
+          } finally {
+            btn.disabled = false;
+            input.disabled = false;
+          }
+        });
+
+        // ⌘+Enter / Ctrl+Enter to submit
+        input.addEventListener('keydown', (ev) => {
+          if ((ev.metaKey || ev.ctrlKey) && ev.key === 'Enter') {
+            ev.preventDefault();
+            replyForm.requestSubmit();
+          }
+        });
+
+        // Auto-grow textarea
+        input.addEventListener('input', () => {
+          input.style.height = 'auto';
+          input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+        });
       }
 
       // ── relative time ───────────────────────────────────────────────────────
@@ -1746,6 +1893,9 @@
           }
           const agentId = body.agentId;
           pendingPrompts.set(agentId, slug);
+          // Create tile up-front so user bubble can be appended immediately
+          ensureAgentTile(agentId);
+          addUserBubble(agentId, prompt);
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ resume: { agentId, sinceSeq: -1 } }));
           } else {

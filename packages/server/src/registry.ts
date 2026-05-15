@@ -17,6 +17,7 @@ type AgentEntry = {
   meta: AgentMeta;
   seq: number;
   tail: Envelope[];
+  sessionId?: string;
 };
 
 export class AgentRegistry {
@@ -33,6 +34,22 @@ export class AgentRegistry {
     const entry: AgentEntry = { meta, seq: 0, tail: [] };
     this.agents.set(id, entry);
     return { ...meta, nextSeq: () => entry.seq++ };
+  }
+
+  setSessionId(agentId: string, sessionId: string): void {
+    const entry = this.agents.get(agentId);
+    if (!entry) return;
+    entry.sessionId = sessionId;
+  }
+
+  sessionIdFor(agentId: string): string | undefined {
+    return this.agents.get(agentId)?.sessionId;
+  }
+
+  nextSeqFor(agentId: string): number {
+    const entry = this.agents.get(agentId);
+    if (!entry) return 0;
+    return entry.seq++;
   }
 
   record(env: Envelope): void {

@@ -51,4 +51,24 @@ describe('AgentRegistry', () => {
     expect(reg.get('agt_fake')).toBeUndefined();
     expect(() => reg.record(e('agt_fake', 0))).not.toThrow();
   });
+
+  it('setSessionId / sessionIdFor store and retrieve a session ID; unknown agentId returns undefined', () => {
+    const a = reg.create({ projectPath: '/p' });
+    expect(reg.sessionIdFor(a.id)).toBeUndefined();
+    reg.setSessionId(a.id, 'sess_abc123');
+    expect(reg.sessionIdFor(a.id)).toBe('sess_abc123');
+    // unknown agentId is safe
+    reg.setSessionId('agt_ghost', 'sess_noop'); // should not throw
+    expect(reg.sessionIdFor('agt_ghost')).toBeUndefined();
+  });
+
+  it('nextSeqFor continues the same counter as the handle nextSeq', () => {
+    const a = reg.create({ projectPath: '/p' });
+    // handle's nextSeq() and registry's nextSeqFor() share the same entry.seq counter
+    expect(a.nextSeq()).toBe(0);
+    expect(a.nextSeq()).toBe(1);
+    expect(reg.nextSeqFor(a.id)).toBe(2);
+    expect(reg.nextSeqFor(a.id)).toBe(3);
+    expect(a.nextSeq()).toBe(4);
+  });
 });

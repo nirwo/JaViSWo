@@ -16,6 +16,10 @@ const SpawnInputSchema = z.object({
   maxBudgetUsd: z.number().positive().optional(),
 });
 
+const TurnInputSchema = z.object({
+  prompt: z.string().min(1),
+});
+
 export function buildHttpApp(
   config: CockpitConfig,
   registry: AgentRegistry,
@@ -39,6 +43,23 @@ export function buildHttpApp(
     const { agentId } = supervisor.spawnAgent(parsed.data);
     recents.add(parsed.data.projectPath);
     return c.json({ agentId }, 201);
+  });
+
+  app.post('/api/agents/:agentId/turn', async (c) => {
+    const agentId = c.req.param('agentId');
+    if (!registry.get(agentId)) {
+      return c.json({ error: { code: 'AGENT_NOT_FOUND' } }, 404);
+    }
+    const body = await c.req.json().catch(() => null);
+    const parsed = TurnInputSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: { code: 'VALIDATION_ERROR', issues: parsed.error.issues } }, 400);
+    }
+    const result = supervisor.continueAgent(agentId, parsed.data.prompt);
+    if (!result.ok) {
+      return c.json({ error: { code: result.reason ?? 'CONTINUE_FAILED' } }, 409);
+    }
+    return c.json({ agentId, ok: true }, 202);
   });
 
   app.get('/api/projects/roots', (c) => {

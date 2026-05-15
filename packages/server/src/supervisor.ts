@@ -14,6 +14,8 @@ export type SpawnAgentInput = {
 
 export type SpawnResult = { agentId: string };
 
+export type ContinueResult = { ok: boolean; reason?: string };
+
 const DEFAULTS = {
   model: 'claude-sonnet-4-6',
   maxTurns: 30,
@@ -23,11 +25,29 @@ const DEFAULTS = {
 
 export class AgentSupervisor {
   private readonly procs = new Map<string, ReturnType<typeof spawn>>();
+  private readonly sanitizedEnv: NodeJS.ProcessEnv;
 
   constructor(
     private readonly registry: AgentRegistry,
     private readonly onEnvelope: (env: Envelope) => void,
-  ) {}
+  ) {
+    // Strip npm lifecycle variables and sanitize PATH so the claude binary
+    // uses its own bundled Node.js runtime rather than the system node that
+    // npm injects via PATH prepends (node_modules/.bin).  When npm run dev
+    // starts the server it prepends workspace .bin dirs (including the user's
+    // global /Users/<name>/node_modules/.bin) to PATH; those dirs can contain
+    // a stale @anthropic-ai/claude-code that breaks the spawned CLI process.
+    const childPath = (process.env.PATH ?? '')
+      .split(':')
+      .filter((p) => !p.includes('node_modules/.bin'))
+      .join(':');
+
+    const childEnv = Object.fromEntries(
+      Object.entries(process.env).filter(([k]) => !k.startsWith('npm_')),
+    );
+    childEnv.PATH = childPath;
+    this.sanitizedEnv = childEnv;
+  }
 
   spawnAgent(input: SpawnAgentInput): SpawnResult {
     const handle = this.registry.create({ projectPath: input.projectPath });
@@ -51,32 +71,70 @@ export class AgentSupervisor {
       '--verbose',
     ];
 
-    // Strip npm lifecycle variables and sanitize PATH so the claude binary
-    // uses its own bundled Node.js runtime rather than the system node that
-    // npm injects via PATH prepends (node_modules/.bin).  When npm run dev
-    // starts the server it prepends workspace .bin dirs (including the user's
-    // global /Users/<name>/node_modules/.bin) to PATH; those dirs can contain
-    // a stale @anthropic-ai/claude-code that breaks the spawned CLI process.
-    const childPath = (process.env.PATH ?? '')
-      .split(':')
-      .filter((p) => !p.includes('node_modules/.bin'))
-      .join(':');
-
-    const childEnv = Object.fromEntries(
-      Object.entries(process.env).filter(([k]) => !k.startsWith('npm_')),
-    );
-    childEnv.PATH = childPath;
-
     const child = spawn('claude', args, {
       cwd: input.projectPath,
-      env: childEnv,
+      env: this.sanitizedEnv,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     this.procs.set(handle.id, child);
 
-    let sessionId = '';
+    this.wireChild(handle.id, child, {
+      nextSeq: () => handle.nextSeq(),
+      initialSessionId: '',
+    });
+
+    return { agentId: handle.id };
+  }
+
+  continueAgent(agentId: string, prompt: string): ContinueResult {
+    const sessionId = this.registry.sessionIdFor(agentId);
+    if (!sessionId) return { ok: false, reason: 'NO_SESSION' };
+    const meta = this.registry.get(agentId);
+    if (!meta) return { ok: false, reason: 'AGENT_NOT_FOUND' };
+
+    const args = [
+      '-p',
+      prompt,
+      '--output-format',
+      'stream-json',
+      '--include-partial-messages',
+      '--resume',
+      sessionId,
+      '--add-dir',
+      meta.projectPath,
+      '--max-turns',
+      String(DEFAULTS.maxTurns),
+      '--max-budget-usd',
+      String(DEFAULTS.maxBudgetUsd),
+      '--permission-mode',
+      DEFAULTS.permissionMode,
+      '--verbose',
+    ];
+
+    const child = spawn('claude', args, {
+      cwd: meta.projectPath,
+      env: this.sanitizedEnv,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    // Overwrite the previous (already-exited) entry — intentional.
+    this.procs.set(agentId, child);
+
+    this.wireChild(agentId, child, {
+      nextSeq: () => this.registry.nextSeqFor(agentId),
+      initialSessionId: sessionId,
+    });
+
+    return { ok: true };
+  }
+
+  private wireChild(
+    agentId: string,
+    child: ReturnType<typeof spawn>,
+    opts: { nextSeq: () => number; initialSessionId: string },
+  ): void {
+    let sessionId = opts.initialSessionId;
     const parser = new NdjsonParser((err, line) =>
-      console.warn(`[cockpit] parse error on ${handle.id}:`, err, line.slice(0, 200)),
+      console.warn(`[cockpit] parse error on ${agentId}:`, err, line.slice(0, 200)),
     );
 
     const emit = (env: Envelope) => {
@@ -89,13 +147,19 @@ export class AgentSupervisor {
     // empty-string values on the wire — sessionId is optional in the schema.
     const mkSysEnvelope = (kind: 'stderr' | 'exit', payload: unknown): Envelope => ({
       v: 1,
-      agentId: handle.id,
+      agentId,
       ...(sessionId ? { sessionId } : {}),
-      seq: handle.nextSeq(),
+      seq: opts.nextSeq(),
       ts: Date.now(),
       kind,
       payload,
     });
+
+    if (!child.stdout || !child.stderr) {
+      emit(mkSysEnvelope('stderr', { text: 'spawn error: stdio streams unavailable' }));
+      emit(mkSysEnvelope('exit', { code: -1 }));
+      return;
+    }
 
     child.stdout.setEncoding('utf-8');
     child.stdout.on('data', (chunk: string) => {
@@ -111,11 +175,12 @@ export class AgentSupervisor {
           typeof (obj as { session_id: unknown }).session_id === 'string'
         ) {
           sessionId = (obj as unknown as { session_id: string }).session_id;
+          this.registry.setSessionId(agentId, sessionId);
         }
         for (const env of normalize(obj as SDKMessage, {
-          agentId: handle.id,
+          agentId,
           sessionId,
-          nextSeq: handle.nextSeq,
+          nextSeq: opts.nextSeq,
           now: () => Date.now(),
         })) {
           emit(env);
@@ -128,32 +193,30 @@ export class AgentSupervisor {
       emit(mkSysEnvelope('stderr', { text: chunk }));
     });
 
-    // Issue 2 fix: flush parser before emitting exit so sequence numbers are
+    // Flush parser before emitting exit so sequence numbers are
     // monotonically ordered (buffered stdout lines before the exit event).
     child.on('exit', (code) => {
       for (const obj of parser.flush()) {
         for (const env of normalize(obj as SDKMessage, {
-          agentId: handle.id,
+          agentId,
           sessionId,
-          nextSeq: handle.nextSeq,
+          nextSeq: opts.nextSeq,
           now: () => Date.now(),
         })) {
           emit(env);
         }
       }
       emit(mkSysEnvelope('exit', { code }));
-      this.procs.delete(handle.id);
+      this.procs.delete(agentId);
     });
 
-    // Issue 1 fix: handle spawn errors (binary not found, bad cwd, etc.) so
+    // Handle spawn errors (binary not found, bad cwd, etc.) so
     // they surface as structured envelopes instead of crashing the server.
     child.on('error', (err) => {
       emit(mkSysEnvelope('stderr', { text: `spawn error: ${err.message}` }));
       emit(mkSysEnvelope('exit', { code: -1 }));
-      this.procs.delete(handle.id);
+      this.procs.delete(agentId);
     });
-
-    return { agentId: handle.id };
   }
 
   stop(agentId: string): void {
