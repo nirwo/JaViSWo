@@ -1,0 +1,1923 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Cockpit M1</title>
+    <style>
+      :root {
+        --bg: #0a0d12;
+        --panel: #0e1218;
+        --border: #1a1f2a;
+        --text: #d4d8e0;
+        --muted: #94a3b8;
+        --accent: #5eead4;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, sans-serif; }
+      header { padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--border); }
+      h1 { font-size: 14px; margin: 0; color: var(--accent); }
+      main { display: grid; grid-template-rows: auto 1fr; height: calc(100vh - 50px); }
+      form { display: flex; flex-direction: column; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+      .form-row { display: flex; gap: 8px; }
+      input, textarea, button { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; }
+      textarea { flex: 1; resize: none; min-height: 60px; }
+      button { background: var(--accent); color: var(--bg); border: none; cursor: pointer; font-weight: 600; }
+      button:disabled { opacity: 0.5; cursor: wait; }
+
+      /* Slim status rows (no border, no padding) */
+      .streamrow { padding: 4px 8px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; display: flex; align-items: center; gap: 5px; }
+      .streamrow.system_init { color: var(--accent); }
+      .streamrow.result { color: var(--muted); border-top: 1px dotted var(--border); border-bottom: 1px dotted var(--border); margin: 8px 0; padding: 6px 8px; }
+      .streamrow.exit { color: var(--muted); font-style: italic; }
+      .streamrow.exit.exit-error { color: #fb7185; }
+      .streamrow.stderr { color: #fb7185; }
+      .streamrow.system { color: var(--muted); font-style: italic; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; padding: 4px 8px; }
+
+      /* Bubble cards */
+      .bubble { margin: 6px 0; padding: 10px 14px; border-radius: 10px; max-width: 80%; cursor: pointer; transition: background 120ms ease, border-color 120ms ease; }
+      .bubble.kind-thinking { border: 1px dashed var(--border); color: var(--muted); font-style: italic; background: rgba(94,234,212,0.03); }
+      .bubble.kind-tool_use { border: 1px solid #fbbf24; background: rgba(251,191,36,0.05); font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; }
+      .bubble.kind-text { border: 1px solid var(--accent); background: rgba(94,234,212,0.06); margin-left: auto; }
+      .bubble.kind-tool_result { border: 1px solid var(--muted); background: rgba(148,163,184,0.05); font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; }
+      .bubble:hover { background: rgba(94,234,212,0.1); }
+      .bubble.expanded { background: rgba(94,234,212,0.12); }
+
+      .bubble .bubble-header { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin-bottom: 4px; display: flex; align-items: center; gap: 5px; }
+      .bubble .bubble-body { font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; color: var(--text); }
+      .bubble .bubble-icon { margin-right: 6px; }
+      .bubble .card-raw { margin-top: 8px; padding: 8px; background: #050709; border: 1px solid var(--border); border-radius: 6px; font-size: 10px; color: var(--muted); overflow: auto; max-height: 200px; white-space: pre; }
+      .bubble:not(.expanded) .card-raw { display: none; }
+
+      /* ── chip ── */
+      .chip {
+        width: 100%;
+        text-align: left;
+        padding: 10px 14px;
+        min-height: 44px;
+        background: var(--bg);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+      }
+      .chip:hover, .chip:focus { border-color: var(--accent); outline: none; }
+      .chip[data-selected="true"] { border-color: var(--accent); }
+      .chip .chip-icon { margin-right: 8px; }
+      .chip .chip-name { font-weight: 600; }
+      .chip .chip-meta { color: var(--muted); margin-left: 8px; font-size: 11px; }
+      .chip .chip-arrow { margin-left: auto; color: var(--muted); }
+
+      /* ── modal ── */
+      .modal.hidden { display: none; }
+      .modal {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+      }
+      .modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.6); }
+      .modal-panel {
+        position: relative;
+        width: 100%;
+        max-width: 480px;
+        max-height: 80vh;
+        display: flex;
+        flex-direction: column;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        overflow: hidden;
+      }
+      .modal-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 14px 18px;
+        border-bottom: 1px solid var(--border);
+      }
+      .modal-header h2 { margin: 0; font-size: 14px; color: var(--accent); }
+      .modal-close {
+        background: transparent;
+        border: none;
+        color: var(--muted);
+        cursor: pointer;
+        font-size: 18px;
+        padding: 4px 8px;
+        min-width: 44px;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .modal-close:hover, .modal-close:focus { color: var(--text); outline: none; }
+      .modal-search { padding: 12px 18px; border-bottom: 1px solid var(--border); }
+      .modal-search input {
+        width: 100%;
+        padding: 8px 12px;
+        min-height: 40px;
+        background: var(--bg);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+      }
+      .modal-search input:focus { border-color: var(--accent); outline: none; }
+      .modal-body { overflow: auto; padding: 8px 0; flex: 1; }
+
+      /* ── picker rows ── */
+      .picker-section-label {
+        padding: 12px 18px 4px;
+        font-size: 10px;
+        text-transform: uppercase;
+        color: var(--muted);
+        letter-spacing: 0.5px;
+      }
+      .picker-row {
+        display: flex;
+        align-items: center;
+        padding: 12px 18px;
+        min-height: 44px;
+        cursor: pointer;
+        border: none;
+        background: transparent;
+        width: 100%;
+        text-align: left;
+        color: var(--text);
+        font: inherit;
+      }
+      .picker-row:hover, .picker-row:focus { background: rgba(94,234,212,0.08); outline: none; }
+      .picker-row .picker-icon { margin-right: 10px; font-size: 14px; }
+      .picker-row .picker-name { flex: 1; }
+      .picker-row .picker-meta { color: var(--muted); font-size: 11px; margin-left: 8px; }
+      .picker-row .picker-badge { margin-left: 8px; }
+      .picker-row .picker-arrow { color: var(--muted); margin-left: 8px; }
+      .picker-back {
+        padding: 10px 18px;
+        font-size: 12px;
+        color: var(--muted);
+        cursor: pointer;
+        background: transparent;
+        border: none;
+        border-bottom: 1px solid var(--border);
+        width: 100%;
+        text-align: left;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        font: inherit;
+      }
+      .picker-back:hover, .picker-back:focus { color: var(--text); outline: none; }
+      .picker-back .picker-back-arrow { margin-right: 8px; }
+
+      @media (max-width: 479px) {
+        .modal { padding: 0; }
+        .modal-panel { max-width: 100%; max-height: 100vh; border-radius: 0; height: 100vh; }
+      }
+
+      /* ── Stage wrap (replaces #stream) ── */
+      #stageWrap {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+      }
+      #stageHeader {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 16px;
+        border-bottom: 1px solid var(--border);
+        background: var(--panel);
+        min-height: 40px;
+      }
+      #stageCount { color: var(--muted); font-size: 11px; }
+      #backToGrid {
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--accent);
+        padding: 4px 10px;
+        border-radius: 4px;
+        cursor: pointer;
+        font: inherit;
+        font-size: 11px;
+        min-height: 28px;
+      }
+      #backToGrid:hover { background: rgba(94,234,212,0.08); }
+
+      #stage {
+        flex: 1;
+        display: grid;
+        gap: 10px;
+        padding: 10px;
+        overflow: auto;
+        min-height: 0;
+        grid-template-columns: 1fr;
+        grid-template-rows: 1fr;
+      }
+      #stage[data-count="2"] { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; }
+      #stage[data-count="3"], #stage[data-count="4"] { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+      #stage[data-count="5"], #stage[data-count="6"], #stage[data-count="7"], #stage[data-count="8"], #stage[data-count="9"] { grid-template-columns: 1fr 1fr 1fr; grid-auto-rows: minmax(220px, 1fr); }
+
+      #stage[data-focused] .agent-tile:not(.focused) { display: none; }
+      #stage[data-focused] .agent-tile.focused { grid-column: 1 / -1; grid-row: 1 / -1; }
+
+      .agent-tile {
+        position: relative;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-left: 3px solid hsl(var(--tile-hue, 174), 50%, 50%);
+        border-radius: 10px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        cursor: pointer;
+        animation: tile-fadein 240ms cubic-bezier(0.4, 0, 0.2, 1) both;
+        will-change: transform;
+      }
+      .agent-tile:hover:not(.focused) { border-color: var(--accent); }
+      .agent-tile.focused { cursor: default; border-color: var(--accent); }
+
+      @keyframes tile-fadein {
+        from { opacity: 0; transform: scale(0.96); }
+        to { opacity: 1; transform: scale(1); }
+      }
+
+      .agent-tile-header {
+        padding: 8px 12px;
+        background: var(--bg);
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 11px;
+        min-height: 36px;
+        flex-wrap: wrap;
+      }
+      .agent-tile-name { font-weight: 600; color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+      .agent-tile-meta { color: var(--muted); flex-shrink: 0; }
+
+      /* ── HUD status indicator (replaces simple dot) ── */
+      .status-hud { display: inline-flex; flex-shrink: 0; color: var(--muted); transition: color 200ms ease; }
+      .status-hud.running { color: var(--accent); }
+      .status-hud.completed { color: var(--accent); }
+      .status-hud.errored { color: #fb7185; }
+      .status-hud.running svg { animation: arc-spin 1.6s linear infinite; }
+      @keyframes arc-spin { to { transform: rotate(360deg); } }
+
+      /* Tile running glow */
+      .agent-tile:has(.status-hud.running) { animation: tile-fadein 240ms cubic-bezier(0.4, 0, 0.2, 1) both, tile-glow 2.4s ease-in-out infinite; }
+      @keyframes tile-glow {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(94,234,212,0); }
+        50% { box-shadow: 0 0 0 1px rgba(94,234,212,0.15), 0 0 24px -4px rgba(94,234,212,0.15); }
+      }
+
+      /* Agent avatar monogram + rotating ring frame */
+      .agent-avatar {
+        width: 22px; height: 22px;
+        border-radius: 6px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 11px;
+        font-weight: 700;
+        flex-shrink: 0;
+      }
+      .avatar-frame {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 30px; height: 30px;
+        flex-shrink: 0;
+      }
+      .avatar-frame::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        border: 1px dashed hsla(var(--avatar-hue, 174), 55%, 60%, 0.55);
+        animation: spin-cw 14s linear infinite;
+        pointer-events: none;
+      }
+      .avatar-frame .agent-avatar { width: 22px; height: 22px; position: relative; z-index: 2; }
+
+      /* Token meter */
+      .token-meter { width: 100%; height: 2px; background: rgba(94,234,212,0.08); border-top: 1px solid var(--border); flex-basis: 100%; }
+      .token-meter-fill { height: 100%; background: var(--accent); width: 0; transition: width 320ms ease; }
+
+      .agent-tile-stream {
+        flex: 1;
+        overflow: auto;
+        padding: 10px 14px;
+        min-height: 0;
+      }
+
+      .agent-tile-footer-hint {
+        padding: 6px 12px;
+        text-align: center;
+        font-size: 10px;
+        color: var(--muted);
+        border-top: 1px dashed var(--border);
+        pointer-events: none;
+      }
+      .agent-tile.focused .agent-tile-footer-hint { display: none; }
+
+      /* Mobile: tiles always stack on small screens */
+      @media (max-width: 640px) {
+        #stage[data-count] { grid-template-columns: 1fr; }
+        #stage[data-count="3"], #stage[data-count="4"], #stage[data-count="5"],
+        #stage[data-count="6"], #stage[data-count="7"], #stage[data-count="8"], #stage[data-count="9"] {
+          grid-template-columns: 1fr;
+          grid-template-rows: auto;
+        }
+      }
+
+      /* ── Topbar ── */
+      .topbar { display: flex; align-items: center; gap: 12px; }
+      .brand { display: flex; align-items: center; gap: 10px; }
+
+      /* Brand mark with counter-rotating rings */
+      .brand-mark {
+        position: relative;
+        width: 36px; height: 36px;
+        display: inline-flex; align-items: center; justify-content: center;
+        background: none; border: none;
+        flex-shrink: 0;
+      }
+      .brand-mark .brand-icon {
+        font-size: 14px;
+        color: var(--accent);
+        position: relative;
+        z-index: 2;
+      }
+      .brand-mark .ring {
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        pointer-events: none;
+      }
+      .brand-mark .ring-outer {
+        border: 1px solid rgba(94,234,212,0.35);
+        border-top-color: rgba(94,234,212,0.8);
+        animation: spin-cw 12s linear infinite;
+      }
+      .brand-mark .ring-inner {
+        inset: 6px;
+        border: 1px dashed rgba(94,234,212,0.25);
+        border-bottom-color: rgba(94,234,212,0.7);
+        animation: spin-ccw 18s linear infinite;
+      }
+      @keyframes spin-cw { to { transform: rotate(360deg); } }
+      @keyframes spin-ccw { to { transform: rotate(-360deg); } }
+
+      .brand-name { font-size: 14px; color: var(--text); font-weight: 600; letter-spacing: 0.3px; }
+      .topbar-spacer { flex: 1; }
+      .topbar-stats {
+        display: inline-flex; align-items: center; gap: 10px;
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .topbar-stats .agent-dots { display: inline-flex; gap: 3px; }
+      .topbar-stats .agent-dots .status-hud { width: 10px; height: 10px; }
+
+      /* HUD diagnostic readouts */
+      .hud-readout {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 2px 8px;
+        border: 1px solid rgba(94,234,212,0.2);
+        border-radius: 4px;
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 10px;
+        letter-spacing: 0.5px;
+      }
+      .hud-readout .hud-label { color: var(--muted); text-transform: uppercase; }
+      .hud-readout .hud-value { color: var(--accent); }
+      .hud-readout.degraded { border-color: rgba(251,191,36,0.4); }
+      .hud-readout.degraded .hud-value { color: #fbbf24; }
+      .hud-readout.lost { border-color: rgba(251,113,133,0.4); }
+      .hud-readout.lost .hud-value { color: #fb7185; }
+      #newAgentBtn {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 6px 12px; min-height: 30px;
+        border-radius: 999px;
+        background: rgba(94,234,212,0.12);
+        color: var(--accent);
+        border: 1px solid rgba(94,234,212,0.4);
+        cursor: pointer;
+        font: inherit; font-size: 12px; font-weight: 600;
+        transition: transform 120ms ease, background 120ms ease, box-shadow 120ms ease;
+      }
+      #newAgentBtn:hover { background: rgba(94,234,212,0.2); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(94,234,212,0.15); }
+      #newAgentBtn:active { transform: translateY(0); }
+      .icon { display: inline-block; vertical-align: -2px; flex-shrink: 0; }
+
+      /* ── Stage empty state ── */
+      .empty-state {
+        position: relative;
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 280px;
+        border-radius: 10px;
+        overflow: hidden;
+        grid-column: 1 / -1;
+        grid-row: 1 / -1;
+      }
+      /* Tron-style perspective grid */
+      .empty-state::before {
+        content: "";
+        position: absolute;
+        inset: -20% 0 0 0;
+        background-image:
+          linear-gradient(90deg, transparent 49.5%, rgba(94,234,212,0.06) 50%, transparent 50.5%),
+          repeating-linear-gradient(0deg, rgba(94,234,212,0.05) 0 1px, transparent 1px 80px);
+        background-size: 80px 100%, 100% 100%;
+        transform: perspective(600px) rotateX(60deg);
+        transform-origin: center 100%;
+        pointer-events: none;
+        animation: grid-pull 20s linear infinite;
+      }
+      @keyframes grid-pull { from { background-position: 0 0; } to { background-position: 0 80px; } }
+
+      .empty-state-content { position: relative; text-align: center; max-width: 360px; padding: 24px; }
+
+      /* Rotating ring container for empty state icon */
+      .empty-state-ring {
+        position: relative;
+        width: 96px; height: 96px;
+        margin: 0 auto 16px;
+        display: inline-flex; align-items: center; justify-content: center;
+      }
+      .empty-state-ring .ring {
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        pointer-events: none;
+      }
+      .empty-state-ring .ring-outer {
+        border: 1px solid rgba(94,234,212,0.4);
+        border-top-color: rgba(94,234,212,0.9);
+        animation: spin-cw 8s linear infinite;
+      }
+      .empty-state-ring .ring-inner {
+        inset: 14px;
+        border: 1px dashed rgba(94,234,212,0.3);
+        border-left-color: rgba(94,234,212,0.8);
+        animation: spin-ccw 12s linear infinite;
+      }
+      .empty-state-ring .empty-state-mark {
+        position: relative;
+        z-index: 2;
+        font-size: 32px;
+        color: var(--accent);
+        filter: drop-shadow(0 0 12px rgba(94,234,212,0.5));
+      }
+
+      .empty-state-title { font-size: 16px; color: var(--text); margin: 0 0 6px; font-weight: 600; }
+      .empty-state-sub { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 0; }
+      .empty-state-sub kbd {
+        display: inline-block; padding: 1px 6px;
+        border: 1px solid var(--border); border-radius: 4px;
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 10px; color: var(--text); background: var(--bg);
+      }
+      /* Typing cursor effect */
+      .typing { color: var(--accent); font-family: 'JetBrains Mono', ui-monospace, monospace; letter-spacing: 1.5px; }
+      .typing::after { content: "▌"; animation: blink 1s steps(2) infinite; color: var(--accent); margin-left: 2px; }
+      @keyframes blink { 50% { opacity: 0; } }
+
+      /* ── Tile corner brackets ── */
+      .agent-tile::before,
+      .agent-tile::after {
+        content: "";
+        position: absolute;
+        width: 14px;
+        height: 14px;
+        pointer-events: none;
+        border-color: hsla(var(--tile-hue, 174), 60%, 70%, 0.6);
+        border-style: solid;
+        border-width: 0;
+        z-index: 3;
+      }
+      .agent-tile::before { top: 4px; left: 4px; border-top-width: 1.5px; border-left-width: 1.5px; }
+      .agent-tile::after  { top: 4px; right: 4px; border-top-width: 1.5px; border-right-width: 1.5px; }
+      .tile-corners-bottom {
+        position: absolute;
+        left: 0; right: 0; bottom: 0; height: 0;
+        pointer-events: none;
+      }
+      .tile-corners-bottom::before,
+      .tile-corners-bottom::after {
+        content: "";
+        position: absolute;
+        bottom: 4px;
+        width: 14px; height: 14px;
+        border-color: hsla(var(--tile-hue, 174), 60%, 70%, 0.6);
+        border-style: solid;
+        border-width: 0;
+        z-index: 3;
+      }
+      .tile-corners-bottom::before { left: 4px; border-bottom-width: 1.5px; border-left-width: 1.5px; }
+      .tile-corners-bottom::after  { right: 4px; border-bottom-width: 1.5px; border-right-width: 1.5px; }
+      /* Hide corner brackets on focused tile (they distract from the content view) */
+      #stage[data-focused] .agent-tile.focused::before,
+      #stage[data-focused] .agent-tile.focused::after,
+      #stage[data-focused] .agent-tile.focused .tile-corners-bottom::before,
+      #stage[data-focused] .agent-tile.focused .tile-corners-bottom::after {
+        opacity: 0;
+        transition: opacity 200ms ease;
+      }
+
+      /* ── Scan-line sweep on running tiles ── */
+      .tile-scan {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        overflow: hidden;
+        border-radius: inherit;
+        opacity: 0;
+        z-index: 1;
+      }
+      .agent-tile:has(.status-hud.running) .tile-scan { opacity: 1; }
+      .tile-scan::before {
+        content: "";
+        position: absolute;
+        left: 0; right: 0;
+        top: -20%;
+        height: 30%;
+        background: linear-gradient(180deg, transparent 0%, rgba(94,234,212,0.06) 50%, transparent 100%);
+        animation: scan-sweep 3.6s linear infinite;
+      }
+      @keyframes scan-sweep {
+        0% { transform: translateY(0); }
+        100% { transform: translateY(450%); }
+      }
+
+      /* ── Boot sequence ── */
+      body.booting > * { opacity: 0; transition: opacity 320ms ease; }
+      body.booting::before {
+        content: "";
+        position: fixed; inset: 0;
+        background: var(--bg);
+        z-index: 1000;
+        pointer-events: none;
+        animation: boot-fade 800ms ease forwards;
+      }
+      body.booting::after {
+        content: "INITIALIZING COCKPIT";
+        position: fixed; inset: 0;
+        display: flex; align-items: center; justify-content: center;
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 12px; letter-spacing: 4px;
+        color: var(--accent);
+        z-index: 1001;
+        pointer-events: none;
+        animation: boot-text 800ms ease forwards;
+        text-shadow: 0 0 8px rgba(94,234,212,0.5);
+      }
+      @keyframes boot-fade { 0% { opacity: 1; } 80% { opacity: 1; } 100% { opacity: 0; } }
+      @keyframes boot-text { 0% { opacity: 0; } 30% { opacity: 1; } 80% { opacity: 1; } 100% { opacity: 0; } }
+
+      /* ── Command bar / form polish ── */
+      form#spawn { padding: 12px 16px; gap: 8px; flex-direction: column; align-items: stretch; border-bottom: 1px solid var(--border); background: var(--panel); }
+      .cmd-row { display: flex; gap: 8px; align-items: stretch; }
+      .cmd-textarea { flex: 1; min-height: 60px; max-height: 168px; resize: none; overflow-y: auto; }
+      .cmd-textarea:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 2px rgba(94,234,212,0.18); }
+
+      #projectChip.empty { animation: chip-pulse 2.4s ease-in-out infinite; }
+      @keyframes chip-pulse { 0%, 100% { border-color: var(--border); } 50% { border-color: var(--accent); } }
+
+      #sendBtn {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 0 18px; min-height: 40px;
+        border-radius: 999px;
+        background: var(--accent);
+        color: var(--bg);
+        font-weight: 600; border: none; cursor: pointer;
+        transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
+        white-space: nowrap;
+      }
+      #sendBtn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(94,234,212,0.25); }
+      #sendBtn:active:not(:disabled) { transform: translateY(0); }
+      #sendBtn:disabled { background: rgba(94,234,212,0.18); color: rgba(212,216,224,0.5); cursor: not-allowed; box-shadow: none; }
+      #sendBtn.transmitting .icon { animation: spin-cw 1.4s linear infinite; }
+      #sendBtn.transmitting .send-label { font-size: 0; }
+      #sendBtn.transmitting .send-label::after { content: "TX…"; font-size: 12px; letter-spacing: 1.5px; }
+
+      /* ── Card append animation ── */
+      .bubble, .streamrow { animation: card-in 240ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+      @keyframes card-in {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+
+      /* ── Mobile responsive ── */
+      @media (max-width: 640px) {
+        header { padding: 8px 10px; }
+        .topbar-stats { font-size: 10px; gap: 6px; }
+        .brand-name { font-size: 12px; }
+        #newAgentBtn .btn-label { display: none; }
+        .hud-readout { display: none; }
+      }
+
+      /* ── User bubble ── */
+      .bubble.kind-user { border: 1px solid rgba(148,163,184,0.5); background: rgba(148,163,184,0.06); margin-left: 0; margin-right: auto; max-width: 70%; }
+      .bubble.kind-user .bubble-header { color: var(--muted); }
+      .bubble.kind-user .bubble-body { color: var(--text); }
+
+      /* ── Turn separator ── */
+      .turn-sep { display: flex; align-items: center; gap: 8px; margin: 16px 0 8px; opacity: 0.6; }
+      .turn-sep-line { flex: 1; height: 1px; background: linear-gradient(90deg, transparent, var(--border), transparent); }
+      .turn-sep-label { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10px; letter-spacing: 3px; color: var(--muted); }
+
+      /* ── Per-tile reply input ── */
+      .tile-reply { display: none; padding: 8px 12px; border-top: 1px solid var(--border); background: var(--bg); gap: 8px; align-items: flex-end; }
+      .tile-reply[data-active="true"] { display: flex; }
+      .tile-reply textarea { flex: 1; min-height: 36px; max-height: 120px; padding: 8px 10px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 6px; font: inherit; font-size: 12px; resize: none; }
+      .tile-reply textarea:focus { outline: none; border-color: var(--accent); }
+      .tile-reply button { background: transparent; color: var(--accent); border: 1px solid rgba(94,234,212,0.4); border-radius: 999px; width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; }
+      .tile-reply button:hover:not(:disabled) { background: rgba(94,234,212,0.12); }
+      .tile-reply button:disabled { opacity: 0.4; cursor: not-allowed; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="topbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">
+            <span class="ring ring-outer"></span>
+            <span class="ring ring-inner"></span>
+            <span class="brand-icon" id="headerBrandMark">⌘</span>
+          </span>
+          <span class="brand-name">Cockpit</span>
+        </div>
+        <div class="topbar-spacer"></div>
+        <div class="topbar-stats" id="topbarStats" aria-live="polite">
+          <span class="agent-dots" id="agentDots"></span>
+          <span id="totalAgents">0 agents</span>
+          <span>·</span>
+          <span id="totalTokens">0 tk</span>
+          <span>·</span>
+          <span id="totalCost">$0.0000</span>
+        </div>
+        <span class="hud-readout" id="netReadout" aria-label="Network latency">
+          <span class="hud-label">NET</span><span class="hud-value" id="netLatency">…ms</span>
+        </span>
+        <span class="hud-readout" id="wsReadout" aria-label="WebSocket status">
+          <span class="hud-label">WS</span><span class="hud-value" id="wsStatus">link</span>
+        </span>
+        <button type="button" id="newAgentBtn" aria-label="New agent">
+          <span id="newAgentBtnIcon"></span>
+          <span class="btn-label">+ Agent</span>
+        </button>
+      </div>
+    </header>
+    <main>
+      <form id="spawn">
+        <button
+          type="button"
+          id="projectChip"
+          class="chip empty"
+          aria-haspopup="dialog"
+          aria-controls="pickerModal"
+        ></button>
+        <div class="cmd-row">
+          <textarea id="prompt" class="cmd-textarea" placeholder="Type a prompt… ⌘↵ to send" required></textarea>
+          <button type="submit" id="sendBtn" disabled>
+            <!-- icon and send-label injected by JS -->
+          </button>
+        </div>
+      </form>
+
+      <section id="stageWrap">
+        <div id="stageHeader">
+          <button type="button" id="backToGrid" hidden>← all agents (<span id="backCount">0</span>)</button>
+          <div id="stageCount" class="muted-text">0 agents</div>
+        </div>
+        <div id="stage" data-count="0"></div>
+      </section>
+
+      <!-- Folder-picker modal — populated entirely by JS via createElement + textContent -->
+      <div id="pickerModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="pickerTitle">
+        <div class="modal-backdrop" data-close></div>
+        <div class="modal-panel">
+          <header class="modal-header">
+            <h2 id="pickerTitle">Pick a project</h2>
+            <button type="button" class="modal-close" data-close aria-label="Close picker">✕</button>
+          </header>
+          <div class="modal-search">
+            <input type="search" id="pickerSearch" placeholder="filter…" autocomplete="off" />
+          </div>
+          <div id="pickerBody" class="modal-body"></div>
+        </div>
+      </div>
+    </main>
+    <script>
+      // ── Icon definitions (SVG strings for DOMParser, NOT innerHTML) ──────────
+      const ICONS = {
+        read:     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>`,
+        edit:     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`,
+        write:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`,
+        bash:     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>`,
+        search:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
+        thinking: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2z"/><path d="M14.5 2a2.5 2.5 0 0 0-2.5 2.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2z"/></svg>`,
+        agent:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>`,
+        tool:     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>`,
+        check:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`,
+        x:        `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+        send:     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`,
+        cmd:      `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 3a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3H6a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3V6a3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3h12a3 3 0 0 0 3-3 3 3 0 0 0-3-3z"/></svg>`,
+      };
+
+      // Parse SVG string via DOMParser — never innerHTML
+      function iconEl(name, size) {
+        const resolvedSize = size ?? 14;
+        const tpl = ICONS[name];
+        if (!tpl) return null;
+        const doc = new DOMParser().parseFromString(tpl, 'image/svg+xml');
+        const svg = doc.documentElement;
+        svg.setAttribute('width', String(resolvedSize));
+        svg.setAttribute('height', String(resolvedSize));
+        svg.classList.add('icon');
+        return svg;
+      }
+
+      // Tool name → icon key
+      function iconForTool(name) {
+        const n = String(name).toLowerCase();
+        if (n === 'read') return 'read';
+        if (n === 'edit' || n === 'multiedit' || n === 'notebookedit') return 'edit';
+        if (n === 'write') return 'write';
+        if (n === 'bash' || n === 'killshell' || n === 'bashoutput') return 'bash';
+        if (n === 'glob' || n === 'grep' || n.startsWith('web')) return 'search';
+        if (n === 'task' || n === 'agent') return 'agent';
+        return 'tool';
+      }
+
+      // Deterministic hash-based hue for agent identity
+      function agentHash(id) {
+        let h = 5381;
+        for (const c of id) h = ((h << 5) + h + c.charCodeAt(0)) >>> 0;
+        return h;
+      }
+      function agentHue(id) { return agentHash(id) % 360; }
+      function agentMonogram(name) {
+        const trimmed = String(name).trim();
+        return (trimmed[0] ?? '?').toUpperCase();
+      }
+
+      // ── DOM refs ─────────────────────────────────────────────────────────────
+      const wsUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
+      const stage = document.getElementById('stage');
+      const backBtn = document.getElementById('backToGrid');
+      const backCount = document.getElementById('backCount');
+      const form = document.getElementById('spawn');
+      const promptInput = document.getElementById('prompt');
+      const sendBtn = document.getElementById('sendBtn');
+      const projectChip = document.getElementById('projectChip');
+      const pickerModal = document.getElementById('pickerModal');
+      const pickerSearch = document.getElementById('pickerSearch');
+      const pickerBody = document.getElementById('pickerBody');
+
+      // ── Topbar icon + send button setup ─────────────────────────────────────
+      (function initStaticIcons() {
+        // Brand mark now uses inline ⌘ Unicode — already in markup, no JS needed.
+        const newAgentBtnIcon = document.getElementById('newAgentBtnIcon');
+        newAgentBtnIcon.textContent = '+';
+
+        // Send button: icon + label with .send-label class for transmitting state
+        // Clear placeholder comment nodes first
+        while (sendBtn.firstChild) sendBtn.removeChild(sendBtn.firstChild);
+        const sendIcon = iconEl('send', 14);
+        if (sendIcon) sendBtn.appendChild(sendIcon);
+        const sendLabel = document.createElement('span');
+        sendLabel.className = 'send-label';
+        sendLabel.textContent = 'Send';
+        sendBtn.appendChild(sendLabel);
+      })();
+
+      // ── module-level state ──────────────────────────────────────────────────
+      let currentProject = null; // { path, name, hasDesignMd }
+      let pickerState = { view: 'top', root: null, data: null };
+
+      const agents = new Map(); // agentId -> { tile, streamEl, name, status, tokens, cost }
+      const agentTextCard = new Map(); // agentId -> current assistant text card element (or null)
+      const pendingPrompts = new Map(); // agentId -> prompt slug (set before first envelope arrives)
+      let focusedAgentId = null;
+
+      // ── HUD ping/pong state ───────────────────────────────────────────────
+      let lastPongTs = Date.now();
+      let netLatencyMs = null;
+
+      // ── topbar aggregate update ───────────────────────────────────────────
+      function updateTopbar() {
+        const totalAgentsEl = document.getElementById('totalAgents');
+        const totalTokensEl = document.getElementById('totalTokens');
+        const totalCostEl = document.getElementById('totalCost');
+        const agentDotsEl = document.getElementById('agentDots');
+
+        const n = agents.size;
+        totalAgentsEl.textContent = n === 1 ? '1 agent' : `${n} agents`;
+
+        let sumTokens = 0;
+        let sumCost = 0;
+        for (const entry of agents.values()) {
+          sumTokens += entry.tokens ?? 0;
+          sumCost += entry.cost ?? 0;
+        }
+
+        if (sumTokens >= 1000) {
+          totalTokensEl.textContent = `${(sumTokens / 1000).toFixed(1)}k tk`;
+        } else {
+          totalTokensEl.textContent = `${sumTokens} tk`;
+        }
+        totalCostEl.textContent = `$${sumCost.toFixed(4)}`;
+
+        // Rebuild agent dots
+        while (agentDotsEl.firstChild) agentDotsEl.removeChild(agentDotsEl.firstChild);
+        for (const [id, entry] of agents) {
+          const miniDot = makeStatusIndicator(entry.status ?? 'running');
+          miniDot.title = entry.name ?? id;
+          agentDotsEl.appendChild(miniDot);
+        }
+      }
+
+      // ── HUD readout helpers ───────────────────────────────────────────────
+      function updateHudReadouts() {
+        const netEl = document.getElementById('netLatency');
+        const wsEl = document.getElementById('wsStatus');
+        const wsReadout = document.getElementById('wsReadout');
+        if (!netEl || !wsEl || !wsReadout) return;
+        if (netLatencyMs == null) {
+          netEl.textContent = '…ms';
+        } else {
+          netEl.textContent = `${netLatencyMs}ms`;
+        }
+        const sinceLastPong = Date.now() - lastPongTs;
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+          wsEl.textContent = 'lost';
+          wsReadout.classList.remove('degraded');
+          wsReadout.classList.add('lost');
+        } else if (sinceLastPong > 15000) {
+          wsEl.textContent = 'degraded';
+          wsReadout.classList.remove('lost');
+          wsReadout.classList.add('degraded');
+        } else {
+          wsEl.textContent = 'stable';
+          wsReadout.classList.remove('lost', 'degraded');
+        }
+      }
+      setInterval(updateHudReadouts, 1000);
+
+      function sendPing() {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        const ts = Date.now();
+        ws.send(JSON.stringify({ type: 'ping', ts }));
+      }
+      setInterval(sendPing, 5000);
+
+      // ── makeStatusIndicator — SVG ring + spinning arc + center dot ────────
+      function makeStatusIndicator(state) {
+        const wrap = document.createElement('span');
+        wrap.className = `status-hud ${state}`;
+        wrap.setAttribute('aria-label', state);
+        const NS = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(NS, 'svg');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('width', '14');
+        svg.setAttribute('height', '14');
+        // Outer ring (dimmed)
+        const outer = document.createElementNS(NS, 'circle');
+        outer.setAttribute('cx', '12'); outer.setAttribute('cy', '12'); outer.setAttribute('r', '10');
+        outer.setAttribute('fill', 'none'); outer.setAttribute('stroke', 'currentColor');
+        outer.setAttribute('stroke-width', '1'); outer.setAttribute('opacity', '0.3');
+        svg.appendChild(outer);
+        // Spinning arc
+        const arc = document.createElementNS(NS, 'circle');
+        arc.setAttribute('cx', '12'); arc.setAttribute('cy', '12'); arc.setAttribute('r', '10');
+        arc.setAttribute('fill', 'none'); arc.setAttribute('stroke', 'currentColor');
+        arc.setAttribute('stroke-width', '2');
+        arc.setAttribute('stroke-dasharray', '14 100');
+        arc.setAttribute('stroke-linecap', 'round');
+        svg.appendChild(arc);
+        // Center dot
+        const dot = document.createElementNS(NS, 'circle');
+        dot.setAttribute('cx', '12'); dot.setAttribute('cy', '12'); dot.setAttribute('r', '3');
+        dot.setAttribute('fill', 'currentColor');
+        svg.appendChild(dot);
+        wrap.appendChild(svg);
+        return wrap;
+      }
+
+      // ── typeOut — typing effect for empty state subtitle ──────────────────
+      function typeOut(el, text, msPerChar) {
+        const charMs = msPerChar ?? 40;
+        let i = 0;
+        el.textContent = '';
+        const tick = () => {
+          if (i >= text.length) return;
+          el.textContent += text[i++];
+          setTimeout(tick, charMs);
+        };
+        tick();
+      }
+
+      // ── empty state management ────────────────────────────────────────────
+      function renderEmptyState() {
+        if (stage.querySelector('.empty-state')) return;
+        const es = document.createElement('div');
+        es.className = 'empty-state';
+
+        const content = document.createElement('div');
+        content.className = 'empty-state-content';
+
+        // Rotating ring container with ⌘ glyph
+        const ring = document.createElement('div');
+        ring.className = 'empty-state-ring';
+        const outerRing = document.createElement('span');
+        outerRing.className = 'ring ring-outer';
+        outerRing.setAttribute('aria-hidden', 'true');
+        const innerRing = document.createElement('span');
+        innerRing.className = 'ring ring-inner';
+        innerRing.setAttribute('aria-hidden', 'true');
+        const mark = document.createElement('span');
+        mark.className = 'empty-state-mark';
+        mark.setAttribute('aria-hidden', 'true');
+        mark.textContent = '⌘';
+        ring.appendChild(outerRing);
+        ring.appendChild(innerRing);
+        ring.appendChild(mark);
+        content.appendChild(ring);
+
+        const title = document.createElement('h2');
+        title.className = 'empty-state-title';
+        title.textContent = 'Spawn your first agent';
+        content.appendChild(title);
+
+        const sub = document.createElement('p');
+        sub.className = 'empty-state-sub';
+        // Typing element for "INITIALIZING"
+        const typing = document.createElement('span');
+        typing.className = 'typing';
+        sub.appendChild(typing);
+        sub.appendChild(document.createTextNode(' · pick a project, type a prompt, hit '));
+        const kbd = document.createElement('kbd');
+        kbd.textContent = '⌘↵';
+        sub.appendChild(kbd);
+        content.appendChild(sub);
+
+        es.appendChild(content);
+        stage.appendChild(es);
+
+        // Kick off the typing animation
+        typeOut(typing, 'INITIALIZING');
+      }
+
+      function removeEmptyState() {
+        const es = stage.querySelector('.empty-state');
+        if (es) es.remove();
+      }
+
+      // ── stage / tile management ─────────────────────────────────────────────
+      function ensureAgentTile(agentId) {
+        let entry = agents.get(agentId);
+        if (entry) return entry;
+
+        // Remove empty state on first tile
+        removeEmptyState();
+
+        const tile = document.createElement('section');
+        tile.className = 'agent-tile';
+        tile.dataset.agentId = agentId;
+
+        const hue = agentHue(agentId);
+        tile.style.setProperty('--tile-hue', String(hue));
+
+        const tileHeader = document.createElement('header');
+        tileHeader.className = 'agent-tile-header';
+
+        // Avatar monogram wrapped in a rotating-ring frame
+        const avatar = document.createElement('span');
+        avatar.className = 'agent-avatar';
+        avatar.style.background = `hsl(${hue}, 55%, 28%)`;
+        avatar.style.color = `hsl(${hue}, 65%, 75%)`;
+        const promptSlug = pendingPrompts.get(agentId) ?? agentId.slice(4);
+        avatar.textContent = agentMonogram(promptSlug);
+        const avatarFrame = document.createElement('span');
+        avatarFrame.className = 'avatar-frame';
+        avatarFrame.style.setProperty('--avatar-hue', String(hue));
+        avatarFrame.setAttribute('aria-hidden', 'true');
+        avatarFrame.appendChild(avatar);
+
+        const dot = makeStatusIndicator('running');
+
+        const nameEl = document.createElement('span');
+        nameEl.className = 'agent-tile-name';
+        nameEl.textContent = pendingPrompts.get(agentId) ?? agentId.slice(0, 12);
+
+        const metaEl = document.createElement('span');
+        metaEl.className = 'agent-tile-meta';
+        metaEl.textContent = '…';
+
+        // Token meter
+        const meter = document.createElement('div');
+        meter.className = 'token-meter';
+        const meterFill = document.createElement('div');
+        meterFill.className = 'token-meter-fill';
+        meter.appendChild(meterFill);
+
+        tileHeader.append(avatarFrame, dot, nameEl, metaEl, meter);
+
+        const streamEl = document.createElement('div');
+        streamEl.className = 'agent-tile-stream';
+
+        const hint = document.createElement('div');
+        hint.className = 'agent-tile-footer-hint';
+        hint.textContent = 'tap to focus';
+
+        // Scan-line sweep overlay (visible only when running)
+        const scanLine = document.createElement('span');
+        scanLine.className = 'tile-scan';
+        scanLine.setAttribute('aria-hidden', 'true');
+
+        // Bottom corner brackets (top corners handled by ::before/::after on the tile)
+        const cornersBottom = document.createElement('span');
+        cornersBottom.className = 'tile-corners-bottom';
+        cornersBottom.setAttribute('aria-hidden', 'true');
+
+        // Per-tile reply form (hidden until agent completes)
+        const replyForm = document.createElement('form');
+        replyForm.className = 'tile-reply';
+        replyForm.dataset.agentId = agentId;
+        const replyTextarea = document.createElement('textarea');
+        replyTextarea.className = 'tile-reply-input';
+        replyTextarea.placeholder = 'Reply… ⌘↵ to send';
+        const replyBtn = document.createElement('button');
+        replyBtn.type = 'submit';
+        const sendIcon = iconEl('send', 14);
+        if (sendIcon) replyBtn.appendChild(sendIcon);
+        replyForm.append(replyTextarea, replyBtn);
+
+        tile.append(tileHeader, streamEl, replyForm, hint, scanLine, cornersBottom);
+
+        tile.addEventListener('click', (ev) => {
+          if (ev.target.closest('.bubble')) return;
+          if (ev.target.closest('.tile-reply')) return;
+          if (focusedAgentId === agentId) return;
+          focusAgent(agentId);
+        });
+
+        stage.appendChild(tile);
+
+        entry = { tile, streamEl, name: nameEl.textContent, status: 'running', tokens: 0, cost: 0, turn: 1 };
+        agents.set(agentId, entry);
+        setupTileReply(tile, agentId);
+        updateStageCount();
+        updateTopbar();
+        return entry;
+      }
+
+      function updateStageCount() {
+        const n = agents.size;
+        stage.dataset.count = String(Math.min(n, 9));
+        const label = document.getElementById('stageCount');
+        if (n === 0) {
+          label.textContent = '0 agents';
+          renderEmptyState();
+        } else if (n === 1) {
+          label.textContent = '1 agent';
+        } else {
+          label.textContent = `${n} agents`;
+        }
+      }
+
+      // ── FLIP zoom animations ────────────────────────────────────────────────
+      function focusAgent(agentId) {
+        const entry = agents.get(agentId);
+        if (!entry) return;
+
+        const first = entry.tile.getBoundingClientRect();
+
+        focusedAgentId = agentId;
+        document.body.dataset.focused = 'true';
+        stage.dataset.focused = agentId;
+        entry.tile.classList.add('focused');
+        backCount.textContent = String(agents.size);
+        backBtn.hidden = false;
+
+        const last = entry.tile.getBoundingClientRect();
+
+        const dx = first.left - last.left;
+        const dy = first.top - last.top;
+        const sx = first.width / last.width;
+        const sy = first.height / last.height;
+
+        entry.tile.style.transformOrigin = '0 0';
+        entry.tile.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
+        entry.tile.style.transition = 'none';
+        void entry.tile.offsetWidth;
+
+        entry.tile.style.transition = 'transform 320ms cubic-bezier(0.4, 0, 0.2, 1)';
+        entry.tile.style.transform = '';
+
+        const cleanup = () => {
+          entry.tile.style.transition = '';
+          entry.tile.style.transformOrigin = '';
+        };
+        entry.tile.addEventListener('transitionend', cleanup, { once: true });
+      }
+
+      function unfocusAgent() {
+        if (!focusedAgentId) return;
+        const entry = agents.get(focusedAgentId);
+        if (!entry) {
+          document.body.dataset.focused = '';
+          delete stage.dataset.focused;
+          focusedAgentId = null;
+          backBtn.hidden = true;
+          return;
+        }
+
+        const first = entry.tile.getBoundingClientRect();
+
+        entry.tile.classList.remove('focused');
+        document.body.dataset.focused = '';
+        delete stage.dataset.focused;
+        focusedAgentId = null;
+        backBtn.hidden = true;
+
+        const last = entry.tile.getBoundingClientRect();
+
+        const dx = first.left - last.left;
+        const dy = first.top - last.top;
+        const sx = first.width / last.width;
+        const sy = first.height / last.height;
+
+        entry.tile.style.transformOrigin = '0 0';
+        entry.tile.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
+        entry.tile.style.transition = 'none';
+        void entry.tile.offsetWidth;
+
+        entry.tile.style.transition = 'transform 320ms cubic-bezier(0.4, 0, 0.2, 1)';
+        entry.tile.style.transform = '';
+
+        const cleanup = () => {
+          entry.tile.style.transition = '';
+          entry.tile.style.transformOrigin = '';
+        };
+        entry.tile.addEventListener('transitionend', cleanup, { once: true });
+      }
+
+      backBtn.addEventListener('click', unfocusAgent);
+
+      // ── New Agent button ─────────────────────────────────────────────────────
+      document.getElementById('newAgentBtn').addEventListener('click', () => {
+        promptInput.focus();
+        promptInput.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      });
+
+      // ── websocket ───────────────────────────────────────────────────────────
+      let ws;
+      function connect() {
+        ws = new WebSocket(wsUrl);
+        ws.onopen = () => {
+          appendSystem('WS connected');
+          updateHudReadouts();
+          sendPing();
+        };
+        ws.onclose = () => {
+          appendSystem('WS closed, retry in 2s');
+          updateHudReadouts();
+          setTimeout(connect, 2000);
+        };
+        ws.onerror = () => {
+          appendSystemErr('WS error');
+          updateHudReadouts();
+        };
+        ws.onmessage = (ev) => {
+          let env;
+          try { env = JSON.parse(ev.data); } catch { return; }
+          // Handle pong — update latency readout and return (not a stream envelope)
+          if (env && env.type === 'pong' && typeof env.ts === 'number') {
+            netLatencyMs = Date.now() - env.ts;
+            lastPongTs = Date.now();
+            updateHudReadouts();
+            return;
+          }
+          renderEnvelope(env);
+        };
+      }
+      connect();
+
+      // ── stream rendering ────────────────────────────────────────────────────
+      // All DOM writes use createElement + textContent — NEVER innerHTML.
+      // Agent output is fully untrusted; treating it as plain text is the only safe move.
+
+      function appendSystem(text) {
+        const targetEntry = focusedAgentId
+          ? agents.get(focusedAgentId)
+          : agents.values().next().value;
+        if (targetEntry) {
+          const fakeEnv = { kind: 'system', agentId: null, payload: { text } };
+          renderSlimRow(fakeEnv, `[system] ${String(text ?? '')}`, targetEntry.streamEl);
+        }
+      }
+
+      function appendSystemErr(text) {
+        const targetEntry = focusedAgentId
+          ? agents.get(focusedAgentId)
+          : agents.values().next().value;
+        if (targetEntry) {
+          const fakeEnv = { kind: 'stderr', agentId: null, payload: { text } };
+          renderSlimRow(fakeEnv, `[error] ${String(text ?? '')}`, targetEntry.streamEl);
+        }
+      }
+
+      function renderEnvelope(env) {
+        const entry = ensureAgentTile(env.agentId);
+        const tileStream = entry.streamEl;
+
+        if (env.kind === 'system_init') {
+          const p = env.payload ?? {};
+          renderSlimRow(env, `${p.model ?? '?'} @ ${p.cwd ?? '?'}`, tileStream);
+          return;
+        }
+        if (env.kind === 'result') {
+          const p = env.payload ?? {};
+          const usage = p.usage ?? {};
+          const totalTokens = (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0);
+          const cost = p.total_cost_usd ?? 0;
+          renderSlimRow(
+            env,
+            `${usage.input_tokens ?? 0} in · ${usage.output_tokens ?? 0} out · $${cost.toFixed(4)} · ${p.duration_ms ?? 0}ms`,
+            tileStream,
+          );
+          // Update tile header metadata
+          const metaEl = entry.tile.querySelector('.agent-tile-meta');
+          metaEl.textContent = `${totalTokens} tk · $${cost.toFixed(3)}`;
+          const dot = entry.tile.querySelector('.status-hud');
+          if (dot) { dot.className = 'status-hud completed'; dot.setAttribute('aria-label', 'completed'); }
+          // Update token meter (cost / $5 budget)
+          const MAX_BUDGET = 5;
+          const fill = entry.tile.querySelector('.token-meter-fill');
+          if (fill) fill.style.width = `${Math.min(cost / MAX_BUDGET, 1) * 100}%`;
+          // Update entry stats
+          entry.tokens = totalTokens;
+          entry.cost = cost;
+          entry.status = 'completed';
+          updateTopbar();
+          // Show reply form
+          const replyFormResult = entry.tile.querySelector('.tile-reply');
+          if (replyFormResult) replyFormResult.dataset.active = 'true';
+          return;
+        }
+        if (env.kind === 'exit') {
+          const code = env.payload?.code ?? 0;
+          renderSlimRow(env, `exit ${code}`, tileStream, code !== 0 ? 'exit-error' : null);
+          if (code !== 0) {
+            const dot = entry.tile.querySelector('.status-hud');
+            if (dot) { dot.className = 'status-hud errored'; dot.setAttribute('aria-label', 'errored'); }
+            const metaEl = entry.tile.querySelector('.agent-tile-meta');
+            metaEl.textContent = `exit ${code}`;
+            entry.status = 'errored';
+            updateTopbar();
+          }
+          // Show reply form on exit regardless of code (session may still be resumable)
+          const replyFormExit = entry.tile.querySelector('.tile-reply');
+          if (replyFormExit && replyFormExit.dataset.active !== 'true') {
+            replyFormExit.dataset.active = 'true';
+          }
+          return;
+        }
+        if (env.kind === 'stderr') {
+          renderSlimRow(env, env.payload?.text ?? '', tileStream);
+          return;
+        }
+
+        // partial_text → aggregate into current assistant card for this agent
+        if (env.kind === 'partial_text') {
+          let card = agentTextCard.get(env.agentId);
+          if (!card) {
+            card = makeBubble(env, '', 'text', 'assistant');
+            agentTextCard.set(env.agentId, card);
+            tileStream.appendChild(card);
+          }
+          const body = card.querySelector('.bubble-body');
+          body.textContent += env.payload?.delta ?? '';
+          autoScroll(tileStream);
+          return;
+        }
+
+        // text → finalize the current assistant card OR create one with full text
+        if (env.kind === 'text') {
+          let card = agentTextCard.get(env.agentId);
+          if (!card) {
+            card = makeBubble(env, env.payload?.text ?? '', 'text', 'assistant');
+            tileStream.appendChild(card);
+          } else {
+            const body = card.querySelector('.bubble-body');
+            body.textContent = env.payload?.text ?? '';
+            card.dataset.envelope = JSON.stringify(env);
+          }
+          agentTextCard.set(env.agentId, null);
+          autoScroll(tileStream);
+          return;
+        }
+
+        // Any other kind closes the assistant card
+        agentTextCard.set(env.agentId, null);
+
+        if (env.kind === 'thinking') {
+          const card = makeBubble(env, env.payload?.thinking ?? '', 'thinking', 'thinking', 'thinking');
+          tileStream.appendChild(card);
+          autoScroll(tileStream);
+          return;
+        }
+        if (env.kind === 'tool_use') {
+          const name = env.payload?.name ?? '?';
+          const inputStr = JSON.stringify(env.payload?.input ?? {}, null, 2);
+          const card = makeBubble(env, inputStr, 'tool_use', name, iconForTool(name));
+          tileStream.appendChild(card);
+          autoScroll(tileStream);
+          return;
+        }
+        if (env.kind === 'tool_result') {
+          const content = env.payload?.content ?? '';
+          const bodyText = typeof content === 'string' ? content : JSON.stringify(content, null, 2);
+          const card = makeBubble(env, bodyText, 'tool_result', 'result');
+          tileStream.appendChild(card);
+          autoScroll(tileStream);
+          return;
+        }
+
+        // Unknown kind — fallback slim row
+        renderSlimRow(env, `${env.kind}: ${JSON.stringify(env.payload ?? {})}`, tileStream);
+      }
+
+      // iconName is optional — if provided, prepend SVG icon to the header
+      function makeBubble(env, bodyText, kindClass, headerLabel, iconName) {
+        const card = document.createElement('div');
+        const safeClass = String(kindClass).replace(/[^a-z_]/gi, '_');
+        card.className = `bubble kind-${safeClass}`;
+        card.dataset.envelope = JSON.stringify(env);
+
+        const header = document.createElement('div');
+        header.className = 'bubble-header';
+
+        if (iconName) {
+          const icon = iconEl(iconName, 12);
+          if (icon) header.appendChild(icon);
+        }
+
+        const labelText = document.createTextNode(String(headerLabel ?? ''));
+        header.appendChild(labelText);
+        card.appendChild(header);
+
+        const body = document.createElement('div');
+        body.className = 'bubble-body';
+        body.textContent = String(bodyText ?? '');
+        card.appendChild(body);
+
+        card.addEventListener('click', () => toggleExpand(card));
+        return card;
+      }
+
+      function toggleExpand(card) {
+        if (card.classList.contains('expanded')) {
+          card.classList.remove('expanded');
+          const raw = card.querySelector('.card-raw');
+          if (raw) raw.remove();
+        } else {
+          card.classList.add('expanded');
+          const raw = document.createElement('pre');
+          raw.className = 'card-raw';
+          try {
+            raw.textContent = JSON.stringify(JSON.parse(card.dataset.envelope), null, 2);
+          } catch {
+            raw.textContent = '(raw envelope unavailable)';
+          }
+          card.appendChild(raw);
+        }
+      }
+
+      // extraClass: optional additional CSS class to apply to the row
+      function renderSlimRow(env, label, tileStream, extraClass) {
+        const row = document.createElement('div');
+        const safeKind = String(env.kind).replace(/[^a-z_]/gi, '_');
+        row.className = `streamrow ${safeKind}${extraClass ? ` ${extraClass}` : ''}`;
+
+        // Add icon for result and exit rows
+        if (env.kind === 'result') {
+          const icon = iconEl('check', 11);
+          if (icon) row.appendChild(icon);
+        } else if (env.kind === 'exit') {
+          const icon = iconEl('x', 11);
+          if (icon) row.appendChild(icon);
+        }
+
+        const textNode = document.createTextNode(label);
+        row.appendChild(textNode);
+        tileStream.appendChild(row);
+        autoScroll(tileStream);
+      }
+
+      function autoScroll(tileStream) {
+        const THRESHOLD = 50;
+        const atBottom = tileStream.scrollTop + tileStream.clientHeight >= tileStream.scrollHeight - THRESHOLD;
+        if (atBottom) tileStream.scrollTop = tileStream.scrollHeight;
+      }
+
+      // ── Turn separator ──────────────────────────────────────────────────────
+      function addTurnSeparator(agentId) {
+        const entry = agents.get(agentId);
+        if (!entry) return;
+        entry.turn = (entry.turn ?? 1) + 1;
+        const sep = document.createElement('div');
+        sep.className = 'turn-sep';
+        sep.dataset.turn = String(entry.turn);
+        const lineA = document.createElement('span');
+        lineA.className = 'turn-sep-line';
+        const label = document.createElement('span');
+        label.className = 'turn-sep-label';
+        label.textContent = 'TURN ' + String(entry.turn);
+        const lineB = document.createElement('span');
+        lineB.className = 'turn-sep-line';
+        sep.append(lineA, label, lineB);
+        entry.streamEl.appendChild(sep);
+        autoScroll(entry.streamEl);
+      }
+
+      // ── User bubble ─────────────────────────────────────────────────────────
+      function addUserBubble(agentId, promptText) {
+        const entry = agents.get(agentId);
+        if (!entry) return;
+        // Close any open assistant text card so next streaming starts fresh
+        agentTextCard.set(agentId, null);
+        const card = document.createElement('div');
+        card.className = 'bubble kind-user';
+        const header = document.createElement('div');
+        header.className = 'bubble-header';
+        const iconNode = iconEl('agent', 12);
+        if (iconNode) header.appendChild(iconNode);
+        const labelNode = document.createElement('span');
+        labelNode.textContent = ' you';
+        labelNode.style.marginLeft = '4px';
+        header.appendChild(labelNode);
+        card.appendChild(header);
+        const body = document.createElement('div');
+        body.className = 'bubble-body';
+        body.textContent = String(promptText ?? '');
+        card.appendChild(body);
+        entry.streamEl.appendChild(card);
+        autoScroll(entry.streamEl);
+      }
+
+      // ── Per-tile reply form setup ────────────────────────────────────────────
+      function setupTileReply(tile, agentId) {
+        const replyForm = tile.querySelector('.tile-reply');
+        if (!replyForm) return;
+        const input = replyForm.querySelector('.tile-reply-input');
+        const btn = replyForm.querySelector('button');
+
+        replyForm.addEventListener('submit', async (ev) => {
+          ev.preventDefault();
+          const prompt = input.value.trim();
+          if (!prompt) return;
+          btn.disabled = true;
+          input.disabled = true;
+          try {
+            const r = await fetch('/api/agents/' + agentId + '/turn', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ prompt }),
+            });
+            if (!r.ok) {
+              const bodyErr = await r.json().catch(() => null);
+              const errEnv = { kind: 'stderr', agentId, payload: { text: JSON.stringify(bodyErr) } };
+              const entry = agents.get(agentId);
+              if (entry) renderSlimRow(errEnv, JSON.stringify(bodyErr), entry.streamEl);
+              return;
+            }
+            // Add turn separator + user bubble immediately
+            addTurnSeparator(agentId);
+            addUserBubble(agentId, prompt);
+            // Hide the reply form while the new turn streams in
+            replyForm.dataset.active = 'false';
+            input.value = '';
+            input.style.height = '';
+            // Update tile status to "running" optimistically
+            const dot = tile.querySelector('.status-hud');
+            if (dot) {
+              dot.className = 'status-hud running';
+              dot.setAttribute('aria-label', 'running');
+            }
+          } finally {
+            btn.disabled = false;
+            input.disabled = false;
+          }
+        });
+
+        // ⌘+Enter / Ctrl+Enter to submit
+        input.addEventListener('keydown', (ev) => {
+          if ((ev.metaKey || ev.ctrlKey) && ev.key === 'Enter') {
+            ev.preventDefault();
+            replyForm.requestSubmit();
+          }
+        });
+
+        // Auto-grow textarea
+        input.addEventListener('input', () => {
+          input.style.height = 'auto';
+          input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+        });
+      }
+
+      // ── relative time ───────────────────────────────────────────────────────
+      function fmtRelative(ts) {
+        const SECOND = 1000;
+        const MINUTE = 60 * SECOND;
+        const HOUR = 60 * MINUTE;
+        const DAY = 24 * HOUR;
+        const WEEK = 7 * DAY;
+        const delta = Date.now() - ts;
+        if (delta < 60 * SECOND) return 'just now';
+        if (delta < 60 * MINUTE) return `${Math.floor(delta / MINUTE)}m ago`;
+        if (delta < 24 * HOUR) return `${Math.floor(delta / HOUR)}h ago`;
+        if (delta < WEEK) return `${Math.floor(delta / DAY)}d ago`;
+        const d = new Date(ts);
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      }
+
+      // ── chip state ──────────────────────────────────────────────────────────
+      function setSelectedProject(path, name, hasDesignMd) {
+        currentProject = { path, name, hasDesignMd };
+        sendBtn.disabled = false;
+        projectChip.setAttribute('data-selected', 'true');
+        projectChip.classList.remove('empty');
+        // Rebuild chip using textContent only
+        while (projectChip.firstChild) projectChip.removeChild(projectChip.firstChild);
+
+        const iconSpan = document.createElement('span');
+        iconSpan.className = 'chip-icon';
+        iconSpan.textContent = '📁';
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'chip-name';
+        nameSpan.textContent = name;
+
+        projectChip.appendChild(iconSpan);
+        projectChip.appendChild(nameSpan);
+
+        if (hasDesignMd) {
+          const badgeSpan = document.createElement('span');
+          badgeSpan.className = 'chip-meta';
+          badgeSpan.textContent = '🎨';
+          projectChip.appendChild(badgeSpan);
+        }
+
+        const arrowSpan = document.createElement('span');
+        arrowSpan.className = 'chip-arrow';
+        arrowSpan.textContent = 'change ▾';
+        projectChip.appendChild(arrowSpan);
+      }
+
+      function renderChipEmpty() {
+        sendBtn.disabled = true;
+        projectChip.removeAttribute('data-selected');
+        projectChip.classList.add('empty');
+        while (projectChip.firstChild) projectChip.removeChild(projectChip.firstChild);
+
+        const iconSpan = document.createElement('span');
+        iconSpan.className = 'chip-icon';
+        iconSpan.textContent = '📁';
+
+        const labelSpan = document.createElement('span');
+        labelSpan.style.color = 'var(--muted)';
+        labelSpan.textContent = 'Pick a project…';
+
+        projectChip.appendChild(iconSpan);
+        projectChip.appendChild(labelSpan);
+      }
+
+      // ── modal open / close ──────────────────────────────────────────────────
+      async function openPicker() {
+        pickerModal.classList.remove('hidden');
+        pickerSearch.value = '';
+        pickerState = { view: 'top', root: null, data: null };
+
+        try {
+          const [rootsRes, recentRes] = await Promise.all([
+            fetch('/api/projects/roots'),
+            fetch('/api/projects/recent'),
+          ]);
+          const rootsData = await rootsRes.json();
+          const recentData = await recentRes.json();
+          const combined = {
+            roots: rootsData.roots ?? [],
+            recent: recentData.recent ?? [],
+          };
+          pickerState.data = combined;
+          renderTopView(combined, '');
+        } catch {
+          renderError('Failed to load projects');
+        }
+
+        pickerSearch.focus();
+      }
+
+      function closePicker() {
+        pickerModal.classList.add('hidden');
+        projectChip.focus();
+      }
+
+      // ── render helpers ──────────────────────────────────────────────────────
+      function clearBody() {
+        while (pickerBody.firstChild) pickerBody.removeChild(pickerBody.firstChild);
+      }
+
+      function makeSectionLabel(text) {
+        const div = document.createElement('div');
+        div.className = 'picker-section-label';
+        div.textContent = text;
+        return div;
+      }
+
+      function makePickerRow(icon, name, meta, badge, arrow) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'picker-row';
+
+        const iconSpan = document.createElement('span');
+        iconSpan.className = 'picker-icon';
+        iconSpan.textContent = icon;
+        btn.appendChild(iconSpan);
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'picker-name';
+        nameSpan.textContent = name;
+        btn.appendChild(nameSpan);
+
+        if (meta) {
+          const metaSpan = document.createElement('span');
+          metaSpan.className = 'picker-meta';
+          metaSpan.textContent = meta;
+          btn.appendChild(metaSpan);
+        }
+
+        if (badge) {
+          const badgeSpan = document.createElement('span');
+          badgeSpan.className = 'picker-badge';
+          badgeSpan.textContent = badge;
+          btn.appendChild(badgeSpan);
+        }
+
+        if (arrow) {
+          const arrowSpan = document.createElement('span');
+          arrowSpan.className = 'picker-arrow';
+          arrowSpan.textContent = arrow;
+          btn.appendChild(arrowSpan);
+        }
+
+        return btn;
+      }
+
+      function renderError(message) {
+        clearBody();
+        const p = document.createElement('p');
+        p.style.padding = '16px 18px';
+        p.style.color = '#fb7185';
+        p.textContent = message;
+        pickerBody.appendChild(p);
+      }
+
+      function renderTopView(data, filter) {
+        clearBody();
+        const q = filter.toLowerCase();
+        const { roots = [], recent = [] } = data;
+
+        const filteredRecent = recent.filter(
+          (r) => !q || r.name.toLowerCase().includes(q),
+        );
+        if (filteredRecent.length > 0) {
+          pickerBody.appendChild(makeSectionLabel('Recent'));
+          for (const item of filteredRecent) {
+            const row = makePickerRow(
+              '📁',
+              item.name,
+              fmtRelative(item.ts),
+              item.hasDesignMd ? '🎨' : null,
+              null,
+            );
+            row.addEventListener('click', () => {
+              setSelectedProject(item.path, item.name, item.hasDesignMd);
+              closePicker();
+              promptInput.focus();
+            });
+            pickerBody.appendChild(row);
+          }
+        }
+
+        const filteredRoots = roots.filter(
+          (r) => !q || r.name.toLowerCase().includes(q),
+        );
+        if (filteredRoots.length > 0) {
+          pickerBody.appendChild(makeSectionLabel('Browse'));
+          for (const root of filteredRoots) {
+            const row = makePickerRow('📂', root.name + '/', null, null, '→');
+            row.addEventListener('click', () => drillInto(root.path, root.name));
+            pickerBody.appendChild(row);
+          }
+        }
+
+        if (filteredRecent.length === 0 && filteredRoots.length === 0) {
+          const empty = document.createElement('p');
+          empty.style.padding = '16px 18px';
+          empty.style.color = 'var(--muted)';
+          empty.textContent = 'No results.';
+          pickerBody.appendChild(empty);
+        }
+      }
+
+      function renderDrilledView(drillData, filter) {
+        clearBody();
+        const q = filter.toLowerCase();
+        const { root, folders = [] } = drillData;
+
+        const drillBackBtn = document.createElement('button');
+        drillBackBtn.type = 'button';
+        drillBackBtn.className = 'picker-back';
+
+        const backArrow = document.createElement('span');
+        backArrow.className = 'picker-back-arrow';
+        backArrow.textContent = '⬅';
+        drillBackBtn.appendChild(backArrow);
+
+        const breadcrumb = document.createElement('span');
+        breadcrumb.textContent = root;
+        drillBackBtn.appendChild(breadcrumb);
+
+        drillBackBtn.addEventListener('click', () => {
+          pickerState = { view: 'top', root: null, data: pickerState.topData ?? pickerState.data };
+          renderTopView(pickerState.data, pickerSearch.value);
+        });
+        pickerBody.appendChild(drillBackBtn);
+
+        const filteredFolders = folders.filter(
+          (f) => !q || f.name.toLowerCase().includes(q),
+        );
+
+        for (const folder of filteredFolders) {
+          const row = makePickerRow(
+            '📁',
+            folder.name,
+            null,
+            folder.hasDesignMd ? '🎨' : null,
+            null,
+          );
+          row.addEventListener('click', () => {
+            setSelectedProject(folder.path, folder.name, folder.hasDesignMd);
+            closePicker();
+            promptInput.focus();
+          });
+          pickerBody.appendChild(row);
+        }
+
+        if (filteredFolders.length === 0) {
+          const empty = document.createElement('p');
+          empty.style.padding = '16px 18px';
+          empty.style.color = 'var(--muted)';
+          empty.textContent = 'No matching folders.';
+          pickerBody.appendChild(empty);
+        }
+      }
+
+      async function drillInto(rootPath, rootName) {
+        try {
+          const res = await fetch(`/api/projects/list?root=${encodeURIComponent(rootPath)}`);
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            renderError(`Error ${res.status}: ${body.error ?? 'Failed to list folders'}`);
+            return;
+          }
+          const drillData = await res.json();
+          pickerState = {
+            view: 'drilled',
+            root: rootPath,
+            data: drillData,
+            topData: pickerState.data,
+          };
+          renderDrilledView(drillData, pickerSearch.value);
+        } catch {
+          renderError('Failed to list folders');
+        }
+      }
+
+      // ── search filter ───────────────────────────────────────────────────────
+      pickerSearch.addEventListener('input', () => {
+        const filter = pickerSearch.value;
+        if (pickerState.view === 'top' && pickerState.data) {
+          renderTopView(pickerState.data, filter);
+        } else if (pickerState.view === 'drilled' && pickerState.data) {
+          renderDrilledView(pickerState.data, filter);
+        }
+      });
+
+      // ── wire triggers ───────────────────────────────────────────────────────
+      projectChip.addEventListener('click', openPicker);
+
+      pickerModal.addEventListener('click', (ev) => {
+        if (ev.target.closest('[data-close]')) closePicker();
+      });
+
+      document.addEventListener('keydown', (ev) => {
+        if (ev.key !== 'Escape') return;
+        if (!pickerModal.classList.contains('hidden')) {
+          closePicker();
+          return;
+        }
+        const expandedBubbles = document.querySelectorAll('.bubble.expanded');
+        if (expandedBubbles.length > 0) {
+          expandedBubbles.forEach((el) => toggleExpand(el));
+          return;
+        }
+        if (focusedAgentId) {
+          unfocusAgent();
+        }
+      });
+
+      // ── textarea auto-grow ───────────────────────────────────────────────────
+      promptInput.addEventListener('input', () => {
+        promptInput.style.height = 'auto';
+        promptInput.style.height = `${Math.min(promptInput.scrollHeight, 168)}px`;
+      });
+
+      // ── ⌘↵ / Ctrl↵ submits form ─────────────────────────────────────────────
+      promptInput.addEventListener('keydown', (ev) => {
+        const isMac = navigator.platform.startsWith('Mac');
+        const modifier = isMac ? ev.metaKey : ev.ctrlKey;
+        if (modifier && ev.key === 'Enter') {
+          ev.preventDefault();
+          form.requestSubmit();
+        }
+      });
+
+      // ── form submit ─────────────────────────────────────────────────────────
+      form.addEventListener('submit', async (ev) => {
+        ev.preventDefault();
+        if (!currentProject) return;
+        sendBtn.disabled = true;
+        sendBtn.classList.add('transmitting');
+        const projectPath = currentProject.path;
+        const prompt = promptInput.value.trim();
+        const slug = prompt.slice(0, 30).trim() + (prompt.length > 30 ? '…' : '');
+        try {
+          const r = await fetch('/api/agents', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ projectPath, prompt }),
+          });
+          const body = await r.json();
+          if (!r.ok) {
+            appendSystemErr(JSON.stringify(body));
+            return;
+          }
+          const agentId = body.agentId;
+          pendingPrompts.set(agentId, slug);
+          // Create tile up-front so user bubble can be appended immediately
+          ensureAgentTile(agentId);
+          addUserBubble(agentId, prompt);
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ resume: { agentId, sinceSeq: -1 } }));
+          } else {
+            appendSystemErr(`WS not open (state=${ws.readyState}); subscription lost — reconnect and retry`);
+          }
+        } finally {
+          sendBtn.classList.remove('transmitting');
+          sendBtn.disabled = false;
+        }
+      });
+
+      // ── boot sequence — 800ms intro ────────────────────────────────────────
+      document.body.classList.add('booting');
+      setTimeout(() => {
+        document.body.classList.remove('booting');
+        // The CSS transition on `body.booting > *` restores opacity when class is removed
+      }, 800);
+
+      // ── initial render ──────────────────────────────────────────────────────
+      renderChipEmpty();
+      renderEmptyState();
+      updateTopbar();
+    </script>
+  </body>
+</html>
