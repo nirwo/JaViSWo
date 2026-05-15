@@ -1499,3 +1499,115 @@ body[data-hide-tool-work="true"] .tool-chip[data-open="true"] {
   .tabs { display: none; }
   .branch { display: none; }
 }
+
+/* ─── Tab kbd hint (⌘1-9 in TopBar) ──────────────────────────────────────── */
+.tab-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: rgba(167,139,250,0.12);
+  color: var(--violet-300);
+  font-family: var(--f-mono);
+  font-size: 9px;
+  letter-spacing: 0.02em;
+  margin-left: 2px;
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+.tab.active .tab-kbd {
+  background: rgba(94,234,212,0.12);
+  color: var(--cyan-300);
+  opacity: 1;
+}
+
+/* ─── Center stage tabs (Chat / Relations switcher) ──────────────────────── */
+.center-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  background: rgba(20,16,46,0.4);
+  border-bottom: 1px solid var(--hairline);
+  flex-shrink: 0;
+}
+.center-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-mute);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.center-tab:hover {
+  background: rgba(167,139,250,0.06);
+  color: var(--text-dim);
+}
+.center-tab.active {
+  background: rgba(167,139,250,0.08);
+  color: var(--violet-200);
+  border-color: rgba(167,139,250,0.2);
+}
+
+/* ─── Relations graph ────────────────────────────────────────────────────── */
+.graph-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  position: relative;
+  background: radial-gradient(60% 50% at 50% 50%, rgba(20,16,46,0.4), transparent 70%);
+}
+.graph-canvas {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+.graph-legend {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--hairline);
+  font-family: var(--f-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  background: rgba(10,8,32,0.5);
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+.graph-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.graph-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.graph-dot.root { background: #22d3ee; box-shadow: 0 0 6px #22d3ee; }
+.graph-dot.sub  { background: #a78bfa; box-shadow: 0 0 6px #a78bfa; }
+.graph-dot.run  {
+  background: var(--cyan-400);
+  box-shadow: 0 0 8px var(--cyan-400);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+.graph-dot.err  { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
+.graph-empty {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+}

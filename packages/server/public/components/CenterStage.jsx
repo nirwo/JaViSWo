@@ -796,9 +796,42 @@ const Composer = () => {
 };
 
 const CenterStage = ({ showPermission, onAllow, onDeny }) => {
+  const [centerView, setCenterView] = React.useState('chat'); // 'chat' | 'graph'
+  const { agents, currentAgentId } = useCockpit();
+  const agent = currentAgentId ? agents.get(currentAgentId) : null;
+
   return (
     <main className="center">
-      <ChatThread/>
+      {agent && (
+        <div className="center-tabs">
+          <button
+            className={`center-tab ${centerView === 'chat' ? 'active' : ''}`}
+            onClick={() => setCenterView('chat')}
+          >
+            <Icon name="terminal" size={11}/> Chat
+          </button>
+          <button
+            className={`center-tab ${centerView === 'graph' ? 'active' : ''}`}
+            onClick={() => setCenterView('graph')}
+          >
+            <Icon name="git" size={11}/> Relations
+          </button>
+          <span style={{ flex: 1 }}/>
+          <span style={{
+            fontFamily: 'var(--f-mono)',
+            fontSize: 10,
+            color: 'var(--text-mute)',
+            alignSelf: 'center',
+          }}>
+            {agent.slug} · turn {agent.turn}
+          </span>
+        </div>
+      )}
+      {centerView === 'chat' ? (
+        <ChatThread/>
+      ) : (
+        <RelationsGraph agent={agent}/>
+      )}
       <Composer/>
     </main>
   );

@@ -13,6 +13,25 @@ const TopBar = () => {
     selectAgent(null);
   };
 
+  // ⌘1-9 / Ctrl+1-9 shortcuts to jump between agent tabs
+  React.useEffect(() => {
+    const handler = (e) => {
+      const tag = (e.target?.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea') return;
+      if (!(e.metaKey || e.ctrlKey)) return;
+      const n = parseInt(e.key, 10);
+      if (!isNaN(n) && n >= 1 && n <= 9) {
+        const target = list[n - 1];
+        if (target) {
+          e.preventDefault();
+          selectAgent(target.id);
+        }
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [list, selectAgent]);
+
   return (
     <header className="topbar">
       <div className="brand">
@@ -27,7 +46,7 @@ const TopBar = () => {
               no agents yet
             </span>
           )}
-          {list.map(a => {
+          {list.map((a, i) => {
             const dotClass = a.status === 'running' ? 'thinking'
                            : a.status === 'errored'  ? 'error'
                            : a.status === 'idle'     ? 'idle'
@@ -37,9 +56,11 @@ const TopBar = () => {
                 key={a.id}
                 className={`tab ${currentAgentId === a.id ? 'active' : ''}`}
                 onClick={() => selectAgent(a.id)}
+                title={`Switch to ${a.slug}${i < 9 ? ` (⌘${i + 1})` : ''}`}
               >
                 <span className={`dot ${dotClass}`}/>
                 <span>{a.slug}</span>
+                {i < 9 && <span className="tab-kbd">{i + 1}</span>}
                 <span
                   className="close"
                   onClick={(e) => { e.stopPropagation(); closeAgent(a.id); }}
