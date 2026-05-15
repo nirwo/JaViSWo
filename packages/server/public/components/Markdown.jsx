@@ -67,6 +67,35 @@ function renderBlock(block, key) {
       ))
     );
   }
+  if (block.type === 'table') {
+    const alignStyle = (a) => ({ textAlign: a === 'r' ? 'right' : a === 'c' ? 'center' : 'left' });
+    return (
+      <div key={key} className="md-table-wrap">
+        <table className="md-table">
+          <thead>
+            <tr>
+              {block.header.map((h, i) => (
+                <th key={key + 'th' + i} style={alignStyle(block.align[i])}>
+                  {renderInline(h, key + 'th' + i)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {block.rows.map((r, i) => (
+              <tr key={key + 'tr' + i}>
+                {r.map((c, j) => (
+                  <td key={key + 'td' + i + '-' + j} style={alignStyle(block.align[j])}>
+                    {renderInline(c, key + 'td' + i + '-' + j)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
   if (block.type === 'p') {
     return <p key={key} className="md-p">{renderInline(block.text, key + 'p')}</p>;
   }
@@ -121,6 +150,32 @@ function parseMarkdown(src) {
     }
     // Blank line
     if (line.trim() === '') { i++; continue; }
+    // GFM Table — header row followed by separator row (|---|---|)
+    if (
+      /^\s*\|.*\|\s*$/.test(line) &&
+      i + 1 < lines.length &&
+      /^\s*\|[\s|:-]+\|\s*$/.test(lines[i + 1])
+    ) {
+      const splitRow = (row) =>
+        row.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+      const header = splitRow(line);
+      const sep = splitRow(lines[i + 1]);
+      const align = sep.map(s => {
+        const l = s.startsWith(':');
+        const r = s.endsWith(':');
+        if (l && r) return 'c';
+        if (r) return 'r';
+        return 'l';
+      });
+      const rows = [];
+      i += 2;
+      while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) {
+        rows.push(splitRow(lines[i]));
+        i++;
+      }
+      blocks.push({ type: 'table', header, rows, align });
+      continue;
+    }
     // Paragraph — consume consecutive non-blank, non-special lines
     const paraLines = [];
     while (
@@ -129,7 +184,8 @@ function parseMarkdown(src) {
       !lines[i].startsWith('```') &&
       !/^#{1,6}\s+/.test(lines[i]) &&
       !/^\s*[-*]\s+/.test(lines[i]) &&
-      !/^\s*\d+\.\s+/.test(lines[i])
+      !/^\s*\d+\.\s+/.test(lines[i]) &&
+      !/^\s*\|.*\|\s*$/.test(lines[i])
     ) {
       paraLines.push(lines[i]);
       i++;

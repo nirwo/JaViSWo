@@ -1,5 +1,5 @@
 // JaViSWo — Center stage: chat thread, tool cards, diff viewer, composer
-// M1.13: collapse thinking blocks, tool chips, markdown text rendering
+// M1.14: group consecutive same-name tool_use, GFM tables, wider bubbles, hide-tool-work
 
 const useStreamedText = (text, speed = 18, start = true) => {
   const [out, setOut] = React.useState('');
@@ -129,29 +129,85 @@ const ToolChip = ({ name, input, status }) => {
   );
 };
 
-// Merge consecutive 'thinking' messages from the same turn into a single group node.
+// Grouped chip for N consecutive tool_use calls with the same name.
+const ToolGroupChip = ({ name, items }) => {
+  const [open, setOpen] = React.useState(false);
+  const n = items.length;
+  const running = items.filter(i => i.status === 'running').length;
+  const errored = items.filter(i => i.status === 'error').length;
+  const ok = items.filter(i => i.status !== 'running' && i.status !== 'error').length;
+  const previewSummary = summarizeToolInput(name, items[n - 1].input);
+
+  return (
+    <div
+      className="tool-chip tool-chip-group"
+      data-open={String(open)}
+      data-status={running > 0 ? 'running' : errored > 0 ? 'error' : 'done'}
+    >
+      <button className="tool-chip-head" onClick={() => setOpen(o => !o)}>
+        <Icon name={iconForTool(name) || 'wand'} size={12}/>
+        <span className="tool-chip-name">{name}</span>
+        <span className="tool-chip-arg">
+          {n > 1
+            ? <><b>{n}</b>&nbsp;calls&nbsp;·&nbsp;{previewSummary}</>
+            : previewSummary}
+        </span>
+        <span className="tool-chip-status">
+          {running > 0
+            ? <span className="spinner"/>
+            : errored > 0
+              ? <><Icon name="warning" size={11}/>{errored} err</>
+              : <><Icon name="check" size={11}/>{ok} ok</>}
+        </span>
+        <Icon name={open ? 'chevron' : 'chevronR'} size={10} style={{ opacity: 0.4, marginLeft: 4 }}/>
+      </button>
+      {open && (
+        <div className="tool-chip-body">
+          {items.map((it, i) => (
+            <div key={i} className="tool-group-item">
+              <span className="tool-group-num">{i + 1}.</span>
+              <span className={`tool-group-status status-${it.status}`}>
+                {it.status === 'running' ? '↻' : it.status === 'error' ? '⚠' : '✓'}
+              </span>
+              <pre className="tool-group-arg">
+                {typeof it.input === 'string' ? it.input : JSON.stringify(it.input, null, 2)}
+              </pre>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Merge consecutive 'thinking' messages and consecutive same-name tool_use from the same turn.
 function groupMessages(messages) {
   const out = [];
   for (const m of messages) {
     const last = out[out.length - 1];
-    if (
-      m.kind === 'thinking' &&
-      last &&
-      last.kind === 'thinking-group' &&
-      last.turn === m.turn
-    ) {
+
+    // Group consecutive thinking
+    if (m.kind === 'thinking' && last?.kind === 'thinking-group' && last.turn === m.turn) {
       last.items.push(m);
       last.totalChars += (m.text ?? '').length;
-    } else if (m.kind === 'thinking') {
-      out.push({
-        kind: 'thinking-group',
-        turn: m.turn,
-        items: [m],
-        totalChars: (m.text ?? '').length,
-      });
-    } else {
-      out.push(m);
+      continue;
     }
+    if (m.kind === 'thinking') {
+      out.push({ kind: 'thinking-group', turn: m.turn, items: [m], totalChars: (m.text ?? '').length });
+      continue;
+    }
+
+    // Group consecutive tool_use of the SAME name + turn
+    if (m.kind === 'tool_use' && last?.kind === 'tool-group' && last.turn === m.turn && last.name === m.name) {
+      last.items.push(m);
+      continue;
+    }
+    if (m.kind === 'tool_use') {
+      out.push({ kind: 'tool-group', turn: m.turn, name: m.name, items: [m] });
+      continue;
+    }
+
+    out.push(m);
   }
   return out;
 }
@@ -413,6 +469,40 @@ const MessageBlock = ({ m, agent }) => {
         );
       }
       return <ToolChip name={m.name} input={m.input} status={m.status}/>;
+    }
+    case 'tool-group': {
+      // Single item — render as normal ToolChip for visual continuity
+      if (m.items.length === 1) {
+        const it = m.items[0];
+        const isEdit = ['Edit', 'MultiEdit', 'Write', 'NotebookEdit'].includes(m.name);
+        if (isEdit && it.input) {
+          return (
+            <div className="msg agent">
+              <div className="msg-avatar"><Icon name="sparkles" size={14} style={{ color: 'white' }}/></div>
+              <div className="msg-body">
+                <SimpleDiffCard name={it.name} input={it.input} status={it.status}/>
+              </div>
+            </div>
+          );
+        }
+        return <ToolChip name={it.name} input={it.input} status={it.status}/>;
+      }
+      // Edit tools — show each diff card individually (diffs are meaningful per-call)
+      const isEdit = ['Edit', 'MultiEdit', 'Write', 'NotebookEdit'].includes(m.name);
+      if (isEdit) {
+        return (
+          <div className="msg agent">
+            <div className="msg-avatar"><Icon name="sparkles" size={14} style={{ color: 'white' }}/></div>
+            <div className="msg-body" style={{ gap: 6 }}>
+              {m.items.map((it, i) => (
+                <SimpleDiffCard key={i} name={it.name} input={it.input} status={it.status}/>
+              ))}
+            </div>
+          </div>
+        );
+      }
+      // Everything else — one grouped chip representing all calls
+      return <ToolGroupChip name={m.name} items={m.items}/>;
     }
     case 'agent-text':
       return (
@@ -714,7 +804,7 @@ const CenterStage = ({ showPermission, onAllow, onDeny }) => {
 
 Object.assign(window, {
   CenterStage, ChatThread, MessageBlock, EmptyState,
-  ThinkingIndicator, ThinkingGroup, ToolCard, ToolChip, DiffViewer, PermissionCard, Composer,
+  ThinkingIndicator, ThinkingGroup, ToolCard, ToolChip, ToolGroupChip, DiffViewer, PermissionCard, Composer,
   VoiceBar, LiveVoiceBar, SimpleDiffCard,
   useStreamedText, groupMessages, summarizeToolInput, iconForTool,
 });

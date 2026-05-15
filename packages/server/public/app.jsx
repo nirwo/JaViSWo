@@ -32,7 +32,7 @@ const ACCENT_PALETTES = [
 
 const App = () => {
   const [tweaks, set] = useTweaks(TWEAK_DEFAULTS);
-  const { ttsEnabled, setTts } = useCockpit();
+  const { ttsEnabled, setTts, hideToolWork, setHide } = useCockpit();
 
   const [permission, setPermission] = React.useState(tweaks.permission);
 
@@ -146,6 +146,11 @@ const App = () => {
             label="Approval prompt"
             value={permission}
             onChange={v => { setPermission(v); set("permission", v); }}
+          />
+          <TweakToggle
+            label="Hide tool work"
+            value={hideToolWork}
+            onChange={v => setHide(v)}
           />
         </TweakSection>
       </TweaksPanel>

@@ -68,6 +68,19 @@ function CockpitProvider({ children }) {
     try { localStorage.setItem('cockpit:tts', v ? '1' : '0'); } catch {}
   }, []);
 
+  // Hide tool work — collapses tool/thinking chips into micro-pills
+  const [hideToolWork, setHideToolWork] = React.useState(
+    () => localStorage.getItem('cockpit:hide-tool-work') === '1',
+  );
+  const setHide = React.useCallback((v) => {
+    setHideToolWork(v);
+    try { localStorage.setItem('cockpit:hide-tool-work', v ? '1' : '0'); } catch {}
+  }, []);
+
+  React.useEffect(() => {
+    document.body.dataset.hideToolWork = hideToolWork ? 'true' : 'false';
+  }, [hideToolWork]);
+
   const wsRef = React.useRef(null);
   const subscribedRef = React.useRef(new Set());
   const pingRef = React.useRef(null);
@@ -452,6 +465,8 @@ function CockpitProvider({ children }) {
     clientCount,
     ttsEnabled,
     setTts,
+    hideToolWork,
+    setHide,
     refreshProjectData,
     spawn,
     continueAgent,
