@@ -5,6 +5,8 @@ export type AgentMeta = {
   id: string;
   projectPath: string;
   createdAt: number;
+  firstPrompt: string;
+  turn: number;
 };
 
 export type AgentHandle = AgentMeta & {
@@ -30,7 +32,13 @@ export class AgentRegistry {
 
   create(input: { projectPath: string }): AgentHandle {
     const id = `agt_${randomBytes(8).toString('hex')}`;
-    const meta: AgentMeta = { id, projectPath: input.projectPath, createdAt: Date.now() };
+    const meta: AgentMeta = {
+      id,
+      projectPath: input.projectPath,
+      createdAt: Date.now(),
+      firstPrompt: '',
+      turn: 1,
+    };
     const entry: AgentEntry = { meta, seq: 0, tail: [] };
     this.agents.set(id, entry);
     return { ...meta, nextSeq: () => entry.seq++ };
@@ -63,6 +71,23 @@ export class AgentRegistry {
     const entry = this.agents.get(agentId);
     if (!entry) return [];
     return entry.tail.filter((e) => e.seq > sinceSeq);
+  }
+
+  setFirstPrompt(agentId: string, prompt: string): void {
+    const entry = this.agents.get(agentId);
+    if (!entry || entry.meta.firstPrompt) return;
+    entry.meta.firstPrompt = prompt;
+  }
+
+  getTurn(agentId: string): number {
+    return this.agents.get(agentId)?.meta.turn ?? 1;
+  }
+
+  bumpTurn(agentId: string): number {
+    const entry = this.agents.get(agentId);
+    if (!entry) return 1;
+    entry.meta.turn += 1;
+    return entry.meta.turn;
   }
 
   get(agentId: string): AgentMeta | undefined {

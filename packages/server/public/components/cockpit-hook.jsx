@@ -150,12 +150,16 @@ function CockpitProvider({ children }) {
         tokens: 0,
         cost: 0,
         sessionId: null,
-        turn: 1,
+        turn: init.turn ?? 1,
         ...init,
       });
       return out;
     });
-  }, []);
+    // If WS is already open, subscribe right away so replay happens immediately.
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      setTimeout(() => subscribe(agentId), 0);
+    }
+  }, [subscribe]);
 
   const subscribe = React.useCallback((agentId) => {
     const ws = wsRef.current;
@@ -172,6 +176,24 @@ function CockpitProvider({ children }) {
       const msgs = a.messages;
       const last = msgs[msgs.length - 1];
       switch (env.kind) {
+        case 'user_prompt': {
+          const turn = env.payload?.turn ?? a.turn ?? 1;
+          const isNewTurn = turn > 1 && turn !== a.turn;
+          const newMessages = [...msgs];
+          if (isNewTurn) {
+            newMessages.push({ kind: 'turn-separator', turn });
+          }
+          newMessages.push({ kind: 'user', turn, text: env.payload?.text ?? '' });
+          const currentSlug = a.slug && a.slug !== a.id.slice(0, 12)
+            ? a.slug
+            : ((env.payload?.text ?? '').slice(0, 30).trim() + ((env.payload?.text ?? '').length > 30 ? '…' : ''));
+          return {
+            ...a,
+            turn: Math.max(a.turn, turn),
+            messages: newMessages,
+            slug: currentSlug,
+          };
+        }
         case 'system_init': {
           return {
             ...a,
@@ -341,6 +363,33 @@ function CockpitProvider({ children }) {
     };
   }, []); // mount-once intentionally
 
+  // Bootstrap agents from server on mount so cross-device clients see existing state
+  React.useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch('/api/agents');
+        if (!r.ok || !alive) return;
+        const body = await r.json();
+        const agentsFromServer = body.agents ?? [];
+        for (const a of agentsFromServer) {
+          const promptText = a.firstPrompt || '';
+          const slug = promptText.slice(0, 30).trim() + (promptText.length > 30 ? '…' : '') || a.id.slice(0, 12);
+          ensureAgent(a.id, { slug, projectPath: a.projectPath, turn: a.turn ?? 1 });
+        }
+        setCurrentAgentId(prev => {
+          if (prev) return prev;
+          if (agentsFromServer.length === 0) return null;
+          const mostRecent = [...agentsFromServer].sort((x, y) => y.createdAt - x.createdAt)[0];
+          return mostRecent.id;
+        });
+      } catch {}
+    })();
+    return () => { alive = false; };
+    // Mount-only intentionally
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Actions
   const spawn = React.useCallback(async (prompt) => {
     if (!draftProject || !draftProject.path) {
@@ -359,11 +408,6 @@ function CockpitProvider({ children }) {
     const body = await r.json();
     const id = body.agentId;
     ensureAgent(id, { slug, projectPath: draftProject.path });
-    // Add user message before envelopes arrive
-    updateAgent(id, a => ({
-      ...a,
-      messages: [...a.messages, { kind: 'user', turn: a.turn, text: prompt }],
-    }));
     setCurrentAgentId(id);
     // Subscribe via the ref so we don't need a stale closure over subscribe
     const ws = wsRef.current;
@@ -372,7 +416,7 @@ function CockpitProvider({ children }) {
       subscribedRef.current.add(id);
     }
     return { ok: true, agentId: id };
-  }, [draftProject, ensureAgent, updateAgent]);
+  }, [draftProject, ensureAgent]);
 
   const continueAgent = React.useCallback(async (agentId, prompt) => {
     const a = agentsRef.current.get(agentId);
@@ -386,21 +430,8 @@ function CockpitProvider({ children }) {
       const body = await r.json().catch(() => null);
       return { ok: false, reason: 'http_error', detail: body };
     }
-    updateAgent(agentId, cur => {
-      const newTurn = cur.turn + 1;
-      return {
-        ...cur,
-        turn: newTurn,
-        status: 'running',
-        messages: [
-          ...cur.messages,
-          { kind: 'turn-separator', turn: newTurn },
-          { kind: 'user', turn: newTurn, text: prompt },
-        ],
-      };
-    });
     return { ok: true };
-  }, [updateAgent]);
+  }, []);
 
   const selectAgent = React.useCallback((id) => setCurrentAgentId(id), []);
 

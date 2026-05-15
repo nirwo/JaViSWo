@@ -49,8 +49,27 @@ export class AgentSupervisor {
     this.sanitizedEnv = childEnv;
   }
 
+  emitUserPrompt(agentId: string, prompt: string): void {
+    this.registry.setFirstPrompt(agentId, prompt);
+    const turn = this.registry.getTurn(agentId);
+    const sessionId = this.registry.sessionIdFor(agentId);
+    const env: Envelope = {
+      v: 1,
+      agentId,
+      ...(sessionId ? { sessionId } : {}),
+      seq: this.registry.nextSeqFor(agentId),
+      ts: Date.now(),
+      kind: 'user_prompt',
+      payload: { text: prompt, turn },
+    };
+    this.registry.record(env);
+    this.onEnvelope(env);
+  }
+
   spawnAgent(input: SpawnAgentInput): SpawnResult {
     const handle = this.registry.create({ projectPath: input.projectPath });
+
+    this.emitUserPrompt(handle.id, input.prompt);
 
     const args = [
       '-p',
@@ -91,6 +110,9 @@ export class AgentSupervisor {
     if (!sessionId) return { ok: false, reason: 'NO_SESSION' };
     const meta = this.registry.get(agentId);
     if (!meta) return { ok: false, reason: 'AGENT_NOT_FOUND' };
+
+    this.registry.bumpTurn(agentId);
+    this.emitUserPrompt(agentId, prompt);
 
     const args = [
       '-p',

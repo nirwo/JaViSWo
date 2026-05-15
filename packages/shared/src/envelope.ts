@@ -9,6 +9,7 @@ export const EnvelopeKindEnum = z.enum([
   'result',
   'stderr',
   'exit',
+  'user_prompt',
 ]);
 export type EnvelopeKind = z.infer<typeof EnvelopeKindEnum>;
 
