@@ -1,4 +1,5 @@
 // JaViSWo — Center stage: chat thread, tool cards, diff viewer, composer
+// M1.13: collapse thinking blocks, tool chips, markdown text rendering
 
 const useStreamedText = (text, speed = 18, start = true) => {
   const [out, setOut] = React.useState('');
@@ -32,6 +33,128 @@ const ThinkingIndicator = ({ label = 'Thinking', detail = 'tracing call graph' }
     </span>
   </div>
 );
+
+// Collapsed-by-default chip for a group of consecutive thinking messages.
+const ThinkingGroup = ({ items, isLive, turn }) => {
+  const [open, setOpen] = React.useState(false);
+  const count = items.length;
+  const latest = items[items.length - 1]?.text ?? '';
+  const firstLine = latest.split('\n')[0];
+  const preview = firstLine.slice(0, 160);
+  const hasMore = latest.length > preview.length || latest !== firstLine;
+  return (
+    <div className="thought-chip" data-open={String(open)}>
+      <button className="thought-chip-head" onClick={() => setOpen(o => !o)}>
+        <span className="thought-chip-dot" data-live={String(isLive)}/>
+        <span className="thought-chip-label">
+          {isLive ? 'Reasoning' : 'Reasoned'} · {count} {count === 1 ? 'thought' : 'thoughts'}
+        </span>
+        {!open && (
+          <span className="thought-chip-preview">{preview}{hasMore ? '…' : ''}</span>
+        )}
+        <Icon name={open ? 'chevron' : 'chevronR'} size={11} style={{ opacity: 0.5, marginLeft: 'auto' }}/>
+      </button>
+      {open && (
+        <div className="thought-chip-body">
+          {items.map((it, i) => (
+            <div key={i} className="thought-step">
+              <span className="thought-step-num">{i + 1}.</span>
+              <span className="thought-step-text">{it.text}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Extract the most informative single-line summary from a tool's input object.
+function summarizeToolInput(name, input) {
+  if (input == null) return '';
+  if (typeof input === 'string') return input.slice(0, 100);
+  if (input.file_path) return String(input.file_path).split('/').slice(-2).join('/');
+  if (input.path) return String(input.path).split('/').slice(-2).join('/');
+  if (input.command) return String(input.command).slice(0, 100);
+  if (input.pattern) return String(input.pattern).slice(0, 80);
+  if (input.url) return String(input.url).slice(0, 100);
+  if (input.query) return String(input.query).slice(0, 80);
+  if (input.prompt) return String(input.prompt).slice(0, 80);
+  if (input.description) return String(input.description).slice(0, 80);
+  const parts = [];
+  for (const [k, v] of Object.entries(input)) {
+    if (typeof v === 'string') parts.push(`${k}: ${v.slice(0, 40)}`);
+  }
+  return parts.slice(0, 2).join(' · ').slice(0, 120) || '(no args)';
+}
+
+function iconForTool(name) {
+  const n = String(name).toLowerCase();
+  if (n === 'read' || n === 'notebookread') return 'file';
+  if (n === 'edit' || n === 'multiedit' || n === 'write' || n === 'notebookedit') return 'wand';
+  if (n === 'bash' || n === 'killshell' || n === 'bashoutput') return 'terminal';
+  if (n === 'glob' || n === 'grep') return 'search';
+  if (n.startsWith('web')) return 'globe';
+  if (n === 'task' || n === 'agent') return 'sparkles';
+  if (n === 'todowrite') return 'check';
+  return 'wand';
+}
+
+// Slim collapsible chip for non-edit tool calls.
+const ToolChip = ({ name, input, status }) => {
+  const [open, setOpen] = React.useState(false);
+  const summary = summarizeToolInput(name, input);
+  const isRun = status === 'running';
+  const isErr = status === 'error';
+  return (
+    <div className="tool-chip" data-status={status} data-open={String(open)}>
+      <button className="tool-chip-head" onClick={() => setOpen(o => !o)}>
+        <Icon name={iconForTool(name)} size={12}/>
+        <span className="tool-chip-name">{name}</span>
+        <span className="tool-chip-arg">{summary}</span>
+        <span className="tool-chip-status">
+          {isRun
+            ? <span className="spinner"/>
+            : isErr
+              ? <Icon name="warning" size={11}/>
+              : <Icon name="check" size={11}/>}
+        </span>
+        <Icon name={open ? 'chevron' : 'chevronR'} size={10} style={{ opacity: 0.4, marginLeft: 4 }}/>
+      </button>
+      {open && (
+        <div className="tool-chip-body">
+          <pre>{typeof input === 'string' ? input : JSON.stringify(input, null, 2)}</pre>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Merge consecutive 'thinking' messages from the same turn into a single group node.
+function groupMessages(messages) {
+  const out = [];
+  for (const m of messages) {
+    const last = out[out.length - 1];
+    if (
+      m.kind === 'thinking' &&
+      last &&
+      last.kind === 'thinking-group' &&
+      last.turn === m.turn
+    ) {
+      last.items.push(m);
+      last.totalChars += (m.text ?? '').length;
+    } else if (m.kind === 'thinking') {
+      out.push({
+        kind: 'thinking-group',
+        turn: m.turn,
+        items: [m],
+        totalChars: (m.text ?? '').length,
+      });
+    } else {
+      out.push(m);
+    }
+  }
+  return out;
+}
 
 const ToolCard = ({ name, args, status = 'running', result, success = true, defaultOpen = true }) => {
   const [open, setOpen] = React.useState(defaultOpen);
@@ -216,12 +339,17 @@ const LiveVoiceBar = ({ levels, onStop }) => (
 // Renders a single message block in the chat thread
 const MessageBlock = ({ m, agent }) => {
   switch (m.kind) {
-    case 'system_init':
+    case 'system_init': {
+      // Only show the first system_init — skip subsequent ones from --resume turns
+      const idx = agent.messages.indexOf(m);
+      const isFirst = idx === 0 || !agent.messages.slice(0, idx).some(x => x.kind === 'system_init');
+      if (!isFirst) return null;
       return (
-        <div className="msg-meta" style={{ margin: '6px 0', color: 'var(--text-mute)' }}>
-          <Icon name="sparkles" size={11}/> session {String(agent.sessionId || '').slice(0, 8)} · {m.model} · {m.cwd}
+        <div className="msg-meta" style={{ margin: '4px 0', color: 'var(--text-mute)', fontSize: 9.5 }}>
+          <Icon name="sparkles" size={10}/> session {String(agent.sessionId || '').slice(0, 8)} · {m.model}
         </div>
       );
+    }
     case 'turn-separator':
       return (
         <div style={{
@@ -248,66 +376,72 @@ const MessageBlock = ({ m, agent }) => {
               <span>·</span>
               <span>turn {m.turn}</span>
             </div>
-            <div className="msg-bubble">{m.text}</div>
+            <div className="msg-bubble">
+              <Markdown text={m.text}/>
+            </div>
           </div>
         </div>
       );
     case 'thinking':
+      // Individual thinking messages are handled by thinking-group below;
+      // this case is a fallback for messages not yet grouped (should not appear normally).
       return (
         <div className="msg agent">
           <div className="msg-avatar"><Icon name="sparkles" size={14} style={{ color: 'white' }}/></div>
           <div className="msg-body">
-            <ThinkingIndicator label="thinking" detail={(m.text || '').slice(0, 80)}/>
+            <ThinkingIndicator label="thinking" detail={(m.text || '').split('\n')[0].slice(0, 80)}/>
           </div>
         </div>
       );
+    case 'thinking-group': {
+      const lastRaw = agent.messages[agent.messages.length - 1];
+      const isLive = agent.status === 'running' &&
+        lastRaw?.kind === 'thinking' &&
+        lastRaw?.turn === m.turn;
+      return <ThinkingGroup items={m.items} isLive={isLive} turn={m.turn}/>;
+    }
     case 'tool_use': {
       const isEdit = ['Edit', 'MultiEdit', 'Write', 'NotebookEdit'].includes(m.name);
-      return (
-        <div className="msg agent">
-          <div className="msg-avatar"><Icon name="sparkles" size={14} style={{ color: 'white' }}/></div>
-          <div className="msg-body">
-            {isEdit && m.input ? (
+      if (isEdit && m.input) {
+        return (
+          <div className="msg agent">
+            <div className="msg-avatar"><Icon name="sparkles" size={14} style={{ color: 'white' }}/></div>
+            <div className="msg-body">
               <SimpleDiffCard name={m.name} input={m.input} status={m.status}/>
-            ) : (
-              <ToolCard
-                name={m.name}
-                args={typeof m.input === 'string' ? m.input : JSON.stringify(m.input ?? {}).slice(0, 160)}
-                status={m.status}
-                success={m.status !== 'error'}
-                defaultOpen={false}
-              />
-            )}
+            </div>
           </div>
-        </div>
-      );
+        );
+      }
+      return <ToolChip name={m.name} input={m.input} status={m.status}/>;
     }
     case 'agent-text':
       return (
         <div className="msg agent">
           <div className="msg-avatar"><Icon name="sparkles" size={14} style={{ color: 'white' }}/></div>
           <div className="msg-body">
-            <div className="msg-bubble">{m.text}</div>
+            <div className="msg-bubble">
+              <Markdown text={m.text}/>
+            </div>
           </div>
         </div>
       );
     case 'result':
       return (
-        <div className="msg-meta" style={{ margin: '6px 0', color: 'var(--text-mute)' }}>
-          <Icon name="check" size={11}/> turn {m.turn} done · {(m.usage?.input_tokens ?? 0) + (m.usage?.output_tokens ?? 0)} tk · ${(m.cost ?? 0).toFixed(4)} · {m.durationMs ?? 0}ms
+        <div className="msg-meta" style={{ margin: '4px 0', color: 'var(--text-mute)', fontSize: 9.5 }}>
+          <Icon name="check" size={10}/> turn {m.turn} · {(m.usage?.input_tokens ?? 0) + (m.usage?.output_tokens ?? 0)} tk · ${(m.cost ?? 0).toFixed(4)} · {m.durationMs ?? 0}ms
         </div>
       );
     case 'exit':
       return (
-        <div className="msg-meta" style={{ margin: '6px 0', color: m.code === 0 ? 'var(--text-mute)' : 'var(--danger)' }}>
-          <Icon name={m.code === 0 ? 'check' : 'warning'} size={11}/> exit {m.code}
+        <div className="msg-meta" style={{ margin: '4px 0', fontSize: 9.5, color: m.code === 0 ? 'var(--text-mute)' : 'var(--danger)' }}>
+          <Icon name={m.code === 0 ? 'check' : 'warning'} size={10}/> exit {m.code}
         </div>
       );
     case 'stderr':
       return (
         <div className="msg-meta" style={{
-          margin: '4px 0', color: 'var(--danger)',
-          fontFamily: 'var(--f-mono)', fontSize: 10.5,
+          margin: '3px 0', color: 'var(--danger)',
+          fontFamily: 'var(--f-mono)', fontSize: 10,
         }}>
           stderr: {m.text}
         </div>
@@ -363,10 +497,15 @@ const ChatThread = () => {
     );
   }
 
+  const grouped = React.useMemo(
+    () => groupMessages(agent.messages),
+    [agent.messages]
+  );
+
   return (
     <div className="chat" ref={scrollRef}>
-      {agent.messages.map((m, i) => <MessageBlock key={i} m={m} agent={agent}/>)}
-      {agent.status === 'running' && (
+      {grouped.map((m, i) => <MessageBlock key={i} m={m} agent={agent}/>)}
+      {agent.status === 'running' && grouped[grouped.length - 1]?.kind !== 'thinking-group' && (
         <ThinkingIndicator label="Reasoning" detail={`turn ${agent.turn} · ${agent.tokens} tk`}/>
       )}
     </div>
@@ -575,7 +714,7 @@ const CenterStage = ({ showPermission, onAllow, onDeny }) => {
 
 Object.assign(window, {
   CenterStage, ChatThread, MessageBlock, EmptyState,
-  ThinkingIndicator, ToolCard, DiffViewer, PermissionCard, Composer,
+  ThinkingIndicator, ThinkingGroup, ToolCard, ToolChip, DiffViewer, PermissionCard, Composer,
   VoiceBar, LiveVoiceBar, SimpleDiffCard,
-  useStreamedText,
+  useStreamedText, groupMessages, summarizeToolInput, iconForTool,
 });
