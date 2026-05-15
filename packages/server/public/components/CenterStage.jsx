@@ -796,8 +796,7 @@ const Composer = () => {
 };
 
 const CenterStage = ({ showPermission, onAllow, onDeny }) => {
-  const [centerView, setCenterView] = React.useState('chat'); // 'chat' | 'graph'
-  const { agents, currentAgentId } = useCockpit();
+  const { agents, currentAgentId, centerView, setCenterView } = useCockpit();
   const agent = currentAgentId ? agents.get(currentAgentId) : null;
 
   return (
@@ -816,6 +815,12 @@ const CenterStage = ({ showPermission, onAllow, onDeny }) => {
           >
             <Icon name="git" size={11}/> Relations
           </button>
+          <button
+            className={`center-tab ${centerView === 'editor' ? 'active' : ''}`}
+            onClick={() => setCenterView('editor')}
+          >
+            <Icon name="file" size={11}/> Editor
+          </button>
           <span style={{ flex: 1 }}/>
           <span style={{
             fontFamily: 'var(--f-mono)',
@@ -829,8 +834,10 @@ const CenterStage = ({ showPermission, onAllow, onDeny }) => {
       )}
       {centerView === 'chat' ? (
         <ChatThread/>
-      ) : (
+      ) : centerView === 'graph' ? (
         <RelationsGraph agent={agent}/>
+      ) : (
+        <CodeEditor/>
       )}
       <Composer/>
     </main>

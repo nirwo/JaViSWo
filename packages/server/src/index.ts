@@ -8,6 +8,7 @@ import { AgentRegistry } from './registry.js';
 import { RecentsStore } from './recents.js';
 import { AgentSupervisor } from './supervisor.js';
 import { attachWebSocket } from './ws.js';
+import { startFileWatch } from './file-watch.js';
 
 const config = loadConfig();
 
@@ -39,6 +40,8 @@ const server = serve(
 const ws = attachWebSocket(server as unknown as import('node:http').Server, registry);
 broadcast = ws.broadcast;
 clientCount = ws.clientCount;
+
+startFileWatch(config, ws.broadcastAll);
 
 process.on('SIGTERM', () => {
   closeDb();

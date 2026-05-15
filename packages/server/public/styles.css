@@ -1611,3 +1611,81 @@ body[data-hide-tool-work="true"] .tool-chip[data-open="true"] {
   place-items: center;
   padding: 32px;
 }
+
+/* ── M4 CodeEditor ──────────────────────────────────────────── */
+.editor-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: #0a0820;
+}
+.editor-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--hairline);
+  background: rgba(10,8,32,0.8);
+  font-family: var(--f-mono);
+  font-size: 11px;
+  flex-shrink: 0;
+  min-height: 36px;
+}
+.editor-path {
+  color: var(--cyan-300);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  max-width: 50%;
+}
+.editor-dirty { color: var(--warning); font-size: 14px; line-height: 1; }
+.editor-banner {
+  padding: 4px 10px;
+  background: rgba(251,191,36,0.12);
+  border: 1px solid rgba(251,191,36,0.3);
+  border-radius: 4px;
+  color: var(--warning);
+  font: inherit;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+.editor-save {
+  padding: 5px 14px;
+  background: rgba(167,139,250,0.12);
+  border: 1px solid rgba(167,139,250,0.3);
+  border-radius: 6px;
+  color: var(--violet-200);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.editor-save:hover:not(:disabled) { background: rgba(167,139,250,0.2); }
+.editor-save:disabled { opacity: 0.5; cursor: default; }
+.editor-close {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text-mute);
+  cursor: pointer;
+}
+.editor-close:hover { background: rgba(167,139,250,0.08); color: var(--text); }
+.editor-canvas {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+.editor-empty {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+}

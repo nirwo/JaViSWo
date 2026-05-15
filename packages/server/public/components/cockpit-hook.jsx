@@ -46,6 +46,8 @@ function CockpitProvider({ children }) {
   const [wsStatus, setWsStatus] = React.useState('connecting');
   const [latencyMs, setLatencyMs] = React.useState(null);
   const [pickerOpen, setPickerOpen] = React.useState(false);
+  const [editorFile, setEditorFile] = React.useState(null);  // absolute path or null
+  const [centerView, setCenterView] = React.useState('chat'); // 'chat' | 'graph' | 'editor'
   const [collapsedSections, setCollapsedSections] = React.useState(() => {
     try {
       const raw = localStorage.getItem('cockpit:collapsed:v1');
@@ -348,6 +350,10 @@ function CockpitProvider({ children }) {
           setLatencyMs(Date.now() - msg.ts);
           return;
         }
+        if (msg && msg.type === 'file_changed' && typeof msg.path === 'string') {
+          window.dispatchEvent(new CustomEvent('cockpit:file_changed', { detail: msg }));
+          return;
+        }
         handleEnvelope(msg);
       };
 
@@ -466,6 +472,11 @@ function CockpitProvider({ children }) {
   const openPicker = React.useCallback(() => setPickerOpen(true), []);
   const closePicker = React.useCallback(() => setPickerOpen(false), []);
 
+  const openEditor = React.useCallback((path) => {
+    setEditorFile(path);
+    setCenterView('editor');
+  }, []);
+
   const toggleSection = React.useCallback((id) => {
     setCollapsedSections(prev => {
       const next = new Set(prev);
@@ -507,6 +518,11 @@ function CockpitProvider({ children }) {
     setTts,
     hideToolWork,
     setHide,
+    editorFile,
+    setEditorFile,
+    centerView,
+    setCenterView,
+    openEditor,
     refreshProjectData,
     spawn,
     continueAgent,

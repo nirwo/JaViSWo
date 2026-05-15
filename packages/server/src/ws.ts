@@ -66,6 +66,15 @@ export function attachWebSocket(httpServer: HttpServer, registry: AgentRegistry)
     }
   }
 
+  function broadcastAll(message: unknown): void {
+    const json = JSON.stringify(message);
+    for (const ws of subs.keys()) {
+      if (ws.readyState === WebSocket.OPEN) {
+        try { ws.send(json); } catch { /* ignore — client may have closed */ }
+      }
+    }
+  }
+
   function clientCount(): number {
     let count = 0;
     for (const ws of subs.keys()) {
@@ -74,5 +83,5 @@ export function attachWebSocket(httpServer: HttpServer, registry: AgentRegistry)
     return count;
   }
 
-  return { broadcast, clientCount };
+  return { broadcast, broadcastAll, clientCount };
 }

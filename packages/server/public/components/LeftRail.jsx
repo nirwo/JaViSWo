@@ -31,6 +31,7 @@ const GitCell = ({ label, value, className }) => (
 );
 
 const TreeNode = ({ node, depth, statusMap, basePath }) => {
+  const { openEditor } = useCockpit();
   const [open, setOpen] = React.useState(depth < 2);
   const relPath = node.path.startsWith(basePath)
     ? node.path.slice(basePath.length).replace(/^\/+/, '')
@@ -45,7 +46,13 @@ const TreeNode = ({ node, depth, statusMap, basePath }) => {
       <div
         className={`tree-row ${cls}`}
         style={{ paddingLeft: 6 + depth * 12 }}
-        onClick={() => isDir && setOpen(o => !o)}
+        onClick={() => {
+          if (isDir) {
+            setOpen(o => !o);
+          } else {
+            openEditor(node.path);
+          }
+        }}
       >
         {isDir
           ? <Icon name={open ? 'chevron' : 'chevronR'} size={10}/>

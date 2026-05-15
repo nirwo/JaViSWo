@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { Hono } from 'hono';
 import { serveStatic } from '@hono/node-server/serve-static';
@@ -12,9 +12,21 @@ import { gitBranch, gitStatus } from './git.js';
 import { transcribe } from './transcribe.js';
 import { loadDesignMd } from './design-md.js';
 
+const READ_MAX_BYTES = 1_000_000;
+
 const FilesTreeQuery = z.object({
   root: z.string().min(1),
   depth: z.coerce.number().int().min(1).max(6).default(3),
+});
+
+const FileReadQuery = z.object({
+  path: z.string().min(1),
+});
+
+const FileWriteBody = z.object({
+  path: z.string().min(1),
+  content: z.string(),
+  ifMatchMtime: z.number().optional(),
 });
 
 const SpawnInputSchema = z.object({
@@ -139,6 +151,66 @@ export function buildHttpApp(
   function isRootAllowed(root: string): boolean {
     return config.roots.some((r) => root === r || root.startsWith(r + '/'));
   }
+
+  // Strict path guard for file read/write — blocks dangerous dirs anywhere in the path
+  function isPathAllowed(absPath: string): boolean {
+    const r = resolve(absPath);
+    if (r.includes('/.git/') || r.endsWith('/.git')) return false;
+    if (r.includes('/node_modules/')) return false;
+    if (r.includes('/.cockpit/')) return false;
+    return config.roots.some((root) => r === root || r.startsWith(root + '/'));
+  }
+
+  app.get('/api/files/read', (c) => {
+    const parsed = FileReadQuery.safeParse({ path: c.req.query('path') });
+    if (!parsed.success) return c.json({ error: { code: 'VALIDATION_ERROR' } }, 400);
+    const p = resolve(parsed.data.path);
+    if (!isPathAllowed(p)) return c.json({ error: { code: 'PATH_NOT_ALLOWED' } }, 403);
+    if (!existsSync(p)) return c.json({ error: { code: 'NOT_FOUND' } }, 404);
+    try {
+      const st = statSync(p);
+      if (!st.isFile()) return c.json({ error: { code: 'NOT_A_FILE' } }, 400);
+      if (st.size > READ_MAX_BYTES) {
+        return c.json({ content: '', mtime: st.mtimeMs, size: st.size, encoding: 'binary' });
+      }
+      const buf = readFileSync(p);
+      const sample = buf.subarray(0, Math.min(buf.length, 4096));
+      const isBinary = sample.includes(0);
+      if (isBinary) {
+        return c.json({ content: '', mtime: st.mtimeMs, size: st.size, encoding: 'binary' });
+      }
+      return c.json({
+        content: buf.toString('utf-8'),
+        mtime: st.mtimeMs,
+        size: st.size,
+        encoding: 'utf-8' as const,
+      });
+    } catch (err) {
+      return c.json({ error: { code: 'READ_FAIL', detail: String((err as Error).message) } }, 500);
+    }
+  });
+
+  app.put('/api/files/write', async (c) => {
+    const body = await c.req.json().catch(() => null);
+    const parsed = FileWriteBody.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: { code: 'VALIDATION_ERROR', issues: parsed.error.issues } }, 400);
+    }
+    const p = resolve(parsed.data.path);
+    if (!isPathAllowed(p)) return c.json({ error: { code: 'PATH_NOT_ALLOWED' } }, 403);
+    if (!existsSync(p)) return c.json({ error: { code: 'NOT_FOUND' } }, 404);
+    try {
+      const st = statSync(p);
+      if (typeof parsed.data.ifMatchMtime === 'number' && Math.abs(st.mtimeMs - parsed.data.ifMatchMtime) > 1) {
+        return c.json({ error: { code: 'CONFLICT', serverMtime: st.mtimeMs } }, 409);
+      }
+      writeFileSync(p, parsed.data.content, 'utf-8');
+      const after = statSync(p);
+      return c.json({ ok: true, mtime: after.mtimeMs });
+    } catch (err) {
+      return c.json({ error: { code: 'WRITE_FAIL', detail: String((err as Error).message) } }, 500);
+    }
+  });
 
   app.get('/api/files/tree', (c) => {
     const parsed = FilesTreeQuery.safeParse({
