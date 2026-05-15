@@ -1,0 +1,368 @@
+// cockpit-hook.jsx — live state for the JaViSWo cockpit
+
+// AgentState shape — one per Claude agent the user has spawned:
+//   { id, slug, projectPath, status, messages, tokens, cost, sessionId, turn }
+//   status: 'idle' | 'running' | 'completed' | 'errored'
+//
+// Message block shapes:
+//   { kind: 'user',          turn, text }
+//   { kind: 'thinking',      turn, text }
+//   { kind: 'tool_use',      turn, id, name, input, status: 'running'|'done'|'error', resultText? }
+//   { kind: 'agent-text',    turn, text }    // aggregates partial_text deltas
+//   { kind: 'result',        turn, usage, cost, durationMs }
+//   { kind: 'exit',          turn, code }
+//   { kind: 'stderr',        turn, text }
+//   { kind: 'system_init',   turn, model, cwd }
+//   { kind: 'turn-separator',turn }          // inserted at start of turns >= 2
+
+const COCKPIT_STORAGE_KEY = 'cockpit:state:v1';
+
+function loadPersistedSelection() {
+  try {
+    const raw = localStorage.getItem(COCKPIT_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch { return null; }
+}
+
+function savePersistedSelection(payload) {
+  try { localStorage.setItem(COCKPIT_STORAGE_KEY, JSON.stringify(payload)); } catch {}
+}
+
+const CockpitContext = React.createContext(null);
+window.CockpitContext = CockpitContext;
+
+function useCockpit() {
+  const ctx = React.useContext(CockpitContext);
+  if (!ctx) throw new Error('useCockpit must be inside <CockpitProvider>');
+  return ctx;
+}
+window.useCockpit = useCockpit;
+
+function CockpitProvider({ children }) {
+  const [agents, setAgents] = React.useState(() => new Map());
+  const [currentAgentId, setCurrentAgentId] = React.useState(null);
+  const [draftProject, setDraftProject] = React.useState(loadPersistedSelection());
+  const [wsStatus, setWsStatus] = React.useState('connecting');
+  const [latencyMs, setLatencyMs] = React.useState(null);
+  const [pickerOpen, setPickerOpen] = React.useState(false);
+
+  const wsRef = React.useRef(null);
+  const subscribedRef = React.useRef(new Set());
+  const pingRef = React.useRef(null);
+  // Keep a ref of current agents for use inside WS callbacks (avoids stale closure)
+  const agentsRef = React.useRef(agents);
+  React.useEffect(() => { agentsRef.current = agents; }, [agents]);
+
+  const updateAgent = React.useCallback((agentId, updater) => {
+    setAgents(prev => {
+      const cur = prev.get(agentId);
+      if (!cur) return prev;
+      const next = updater(cur);
+      const out = new Map(prev);
+      out.set(agentId, next);
+      return out;
+    });
+  }, []);
+
+  const ensureAgent = React.useCallback((agentId, init = {}) => {
+    setAgents(prev => {
+      if (prev.has(agentId)) return prev;
+      const out = new Map(prev);
+      out.set(agentId, {
+        id: agentId,
+        slug: init.slug ?? agentId.slice(0, 12),
+        projectPath: init.projectPath ?? '',
+        status: 'idle',
+        messages: [],
+        tokens: 0,
+        cost: 0,
+        sessionId: null,
+        turn: 1,
+        ...init,
+      });
+      return out;
+    });
+  }, []);
+
+  const subscribe = React.useCallback((agentId) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (subscribedRef.current.has(agentId)) return;
+    ws.send(JSON.stringify({ resume: { agentId, sinceSeq: -1 } }));
+    subscribedRef.current.add(agentId);
+  }, []);
+
+  const handleEnvelope = React.useCallback((env) => {
+    if (!env || !env.agentId) return;
+    updateAgent(env.agentId, (a) => {
+      const t = a.turn;
+      const msgs = a.messages;
+      const last = msgs[msgs.length - 1];
+      switch (env.kind) {
+        case 'system_init': {
+          return {
+            ...a,
+            sessionId: env.sessionId ?? a.sessionId,
+            status: 'running',
+            messages: [...msgs, {
+              kind: 'system_init', turn: t,
+              model: env.payload?.model,
+              cwd: env.payload?.cwd,
+            }],
+          };
+        }
+        case 'thinking': {
+          return {
+            ...a, status: 'running',
+            messages: [...msgs, { kind: 'thinking', turn: t, text: env.payload?.thinking ?? '' }],
+          };
+        }
+        case 'tool_use': {
+          return {
+            ...a, status: 'running',
+            messages: [...msgs, {
+              kind: 'tool_use', turn: t,
+              id: env.payload?.id,
+              name: env.payload?.name ?? '?',
+              input: env.payload?.input,
+              status: 'running',
+            }],
+          };
+        }
+        case 'partial_text': {
+          // Aggregate into a single growing agent-text message per turn
+          if (last && last.kind === 'agent-text' && last.turn === t) {
+            const upd = { ...last, text: (last.text ?? '') + (env.payload?.delta ?? '') };
+            return { ...a, messages: [...msgs.slice(0, -1), upd] };
+          }
+          return {
+            ...a, status: 'running',
+            messages: [...msgs, { kind: 'agent-text', turn: t, text: env.payload?.delta ?? '' }],
+          };
+        }
+        case 'text': {
+          // Authoritative final text — replace any aggregated card
+          if (last && last.kind === 'agent-text' && last.turn === t) {
+            return { ...a, messages: [...msgs.slice(0, -1), { ...last, text: env.payload?.text ?? last.text }] };
+          }
+          return {
+            ...a, status: 'running',
+            messages: [...msgs, { kind: 'agent-text', turn: t, text: env.payload?.text ?? '' }],
+          };
+        }
+        case 'result': {
+          const p = env.payload ?? {};
+          const usage = p.usage ?? {};
+          const total = (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0);
+          return {
+            ...a,
+            tokens: a.tokens + total,
+            cost: a.cost + (p.total_cost_usd ?? 0),
+            status: 'completed',
+            messages: [...msgs, {
+              kind: 'result', turn: t, usage,
+              cost: p.total_cost_usd ?? 0,
+              durationMs: p.duration_ms ?? 0,
+            }],
+          };
+        }
+        case 'exit': {
+          const code = env.payload?.code ?? 0;
+          return {
+            ...a,
+            status: code === 0 ? 'completed' : 'errored',
+            messages: [...msgs, { kind: 'exit', turn: t, code }],
+          };
+        }
+        case 'stderr': {
+          return {
+            ...a,
+            messages: [...msgs, { kind: 'stderr', turn: t, text: env.payload?.text ?? '' }],
+          };
+        }
+        default:
+          return a;
+      }
+    });
+  }, [updateAgent]);
+
+  // WS lifecycle — mount-once
+  React.useEffect(() => {
+    let alive = true;
+
+    function connect() {
+      if (!alive) return;
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      const ws = new WebSocket(`${proto}://${location.host}/ws`);
+      wsRef.current = ws;
+      setWsStatus('connecting');
+
+      ws.onopen = () => {
+        if (!alive) return;
+        setWsStatus('open');
+        // Re-subscribe to all known agents
+        subscribedRef.current.clear();
+        for (const id of agentsRef.current.keys()) {
+          ws.send(JSON.stringify({ resume: { agentId: id, sinceSeq: -1 } }));
+          subscribedRef.current.add(id);
+        }
+        // Ping interval
+        if (pingRef.current) clearInterval(pingRef.current);
+        pingRef.current = setInterval(() => {
+          if (ws.readyState !== WebSocket.OPEN) return;
+          ws.send(JSON.stringify({ type: 'ping', ts: Date.now() }));
+        }, 5000);
+      };
+
+      ws.onmessage = (ev) => {
+        if (!alive) return;
+        let msg;
+        try { msg = JSON.parse(ev.data); } catch { return; }
+        if (msg && msg.type === 'pong' && typeof msg.ts === 'number') {
+          setLatencyMs(Date.now() - msg.ts);
+          return;
+        }
+        handleEnvelope(msg);
+      };
+
+      ws.onclose = () => {
+        if (!alive) return;
+        setWsStatus('closed');
+        if (pingRef.current) { clearInterval(pingRef.current); pingRef.current = null; }
+        setTimeout(connect, 1500);
+      };
+
+      ws.onerror = () => { /* close will follow */ };
+    }
+
+    connect();
+
+    return () => {
+      alive = false;
+      if (pingRef.current) clearInterval(pingRef.current);
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+    };
+  }, []); // mount-once intentionally
+
+  // Actions
+  const spawn = React.useCallback(async (prompt) => {
+    if (!draftProject || !draftProject.path) {
+      return { ok: false, reason: 'no_project' };
+    }
+    const slug = (prompt || '').slice(0, 30).trim() + ((prompt || '').length > 30 ? '…' : '');
+    const r = await fetch('/api/agents', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ prompt, projectPath: draftProject.path }),
+    });
+    if (!r.ok) {
+      const body = await r.json().catch(() => null);
+      return { ok: false, reason: 'http_error', detail: body };
+    }
+    const body = await r.json();
+    const id = body.agentId;
+    ensureAgent(id, { slug, projectPath: draftProject.path });
+    // Add user message before envelopes arrive
+    updateAgent(id, a => ({
+      ...a,
+      messages: [...a.messages, { kind: 'user', turn: a.turn, text: prompt }],
+    }));
+    setCurrentAgentId(id);
+    // Subscribe via the ref so we don't need a stale closure over subscribe
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN && !subscribedRef.current.has(id)) {
+      ws.send(JSON.stringify({ resume: { agentId: id, sinceSeq: -1 } }));
+      subscribedRef.current.add(id);
+    }
+    return { ok: true, agentId: id };
+  }, [draftProject, ensureAgent, updateAgent]);
+
+  const continueAgent = React.useCallback(async (agentId, prompt) => {
+    const a = agentsRef.current.get(agentId);
+    if (!a) return { ok: false, reason: 'unknown_agent' };
+    const r = await fetch(`/api/agents/${agentId}/turn`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ prompt }),
+    });
+    if (!r.ok) {
+      const body = await r.json().catch(() => null);
+      return { ok: false, reason: 'http_error', detail: body };
+    }
+    updateAgent(agentId, cur => {
+      const newTurn = cur.turn + 1;
+      return {
+        ...cur,
+        turn: newTurn,
+        status: 'running',
+        messages: [
+          ...cur.messages,
+          { kind: 'turn-separator', turn: newTurn },
+          { kind: 'user', turn: newTurn, text: prompt },
+        ],
+      };
+    });
+    return { ok: true };
+  }, [updateAgent]);
+
+  const selectAgent = React.useCallback((id) => setCurrentAgentId(id), []);
+
+  const closeAgent = React.useCallback((id) => {
+    setAgents(prev => {
+      if (!prev.has(id)) return prev;
+      const out = new Map(prev);
+      out.delete(id);
+      return out;
+    });
+    subscribedRef.current.delete(id);
+    setCurrentAgentId(prev => {
+      if (prev !== id) return prev;
+      const remaining = [...agentsRef.current.keys()].filter(x => x !== id);
+      return remaining[0] ?? null;
+    });
+  }, []);
+
+  const setDraftProjectAndPersist = React.useCallback((proj) => {
+    setDraftProject(proj);
+    if (proj) savePersistedSelection(proj);
+  }, []);
+
+  const openPicker = React.useCallback(() => setPickerOpen(true), []);
+  const closePicker = React.useCallback(() => setPickerOpen(false), []);
+
+  const totalTokens = React.useMemo(() => {
+    let s = 0;
+    for (const a of agents.values()) s += a.tokens;
+    return s;
+  }, [agents]);
+
+  const totalCost = React.useMemo(() => {
+    let s = 0;
+    for (const a of agents.values()) s += a.cost;
+    return s;
+  }, [agents]);
+
+  const value = {
+    agents,
+    currentAgentId,
+    draftProject,
+    wsStatus,
+    latencyMs,
+    totalTokens,
+    totalCost,
+    pickerOpen,
+    spawn,
+    continueAgent,
+    selectAgent,
+    closeAgent,
+    setDraftProject: setDraftProjectAndPersist,
+    openPicker,
+    closePicker,
+  };
+
+  return <CockpitContext.Provider value={value}>{children}</CockpitContext.Provider>;
+}
+
+window.CockpitProvider = CockpitProvider;

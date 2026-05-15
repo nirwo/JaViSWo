@@ -1,16 +1,44 @@
 // JaViSWo — Right rail: agent orb, task list, terminal, handoff
 
-const AgentOrb = ({ state = "thinking", thought = "Refactoring queue to priority-based dispatch…" }) => {
+const AgentOrb = () => {
+  const { agents, currentAgentId, latencyMs, wsStatus } = useCockpit();
+  const agent = currentAgentId ? agents.get(currentAgentId) : null;
+
+  const state = !agent             ? 'idle'
+              : agent.status === 'running'   ? 'thinking'
+              : agent.status === 'errored'   ? 'errored'
+              : 'online';
+
+  const thought = !agent
+    ? 'Standing by for instructions…'
+    : agent.status === 'running'
+      ? (
+          agent.messages.findLast?.(m => m.kind === 'thinking')?.text?.slice(0, 80)
+          ?? `Processing turn ${agent.turn}…`
+        )
+    : agent.status === 'completed'
+      ? `Turn ${agent.turn} complete · ${agent.tokens} tk`
+    : agent.status === 'errored'
+      ? 'Errored — review logs'
+    : 'Idle';
+
+  const tagClass = wsStatus === 'open' ? 'cyan' : 'pink';
+  const tagLabel = wsStatus === 'open'
+    ? `online · ${latencyMs ?? '…'}ms`
+    : wsStatus;
+
   return (
-    <div className="rail-section" style={{flex:"0 0 auto"}}>
+    <div className="rail-section" style={{ flex: '0 0 auto' }}>
       <div className="rail-head">
         <span>Agent</span>
-        <span className="tag cyan"><Icon name="bolt" size={9}/>online</span>
+        <span className={`tag ${tagClass}`}>
+          <Icon name="bolt" size={9}/>{tagLabel}
+        </span>
       </div>
       <div className="orb-wrap">
         <div className="orb-stage">
-          <div className="orb" />
-          <OrbParticles count={7} />
+          <div className="orb"/>
+          <OrbParticles count={7}/>
         </div>
         <div className="orb-state">{state}</div>
         <div className="orb-thought">"{thought}"</div>

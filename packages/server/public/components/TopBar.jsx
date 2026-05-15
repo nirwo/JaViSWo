@@ -1,12 +1,18 @@
 // JaViSWo — Top bar (brand, multi-agent tabs, branch, tokens)
 
 const TopBar = () => {
-  const [activeTab, setActiveTab] = React.useState(0);
-  const tabs = [
-    { name: "orchestrator refactor", state: "thinking" },
-    { name: "ws reconnect", state: "active" },
-    { name: "schema migration", state: "idle" },
-  ];
+  const {
+    agents, currentAgentId, selectAgent, closeAgent,
+    totalTokens, totalCost, draftProject, openPicker,
+  } = useCockpit();
+
+  const list = [...agents.values()];
+
+  const onNew = () => {
+    // Deselect — user is starting a new agent from the composer
+    selectAgent(null);
+  };
+
   return (
     <header className="topbar">
       <div className="brand">
@@ -14,43 +20,66 @@ const TopBar = () => {
         <span className="brand-name"><b>JaViSWo</b> <span>· agent console</span></span>
       </div>
 
-      <div style={{display:"flex", alignItems:"center", gap:14, minWidth:0, overflow:"hidden"}}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0, overflow: 'hidden' }}>
         <div className="tabs">
-          {tabs.map((t, i) => (
-            <button
-              key={i}
-              className={`tab ${activeTab === i ? "active" : ""}`}
-              onClick={() => setActiveTab(i)}
-            >
-              <span className={`dot ${t.state === "thinking" ? "thinking" : t.state === "idle" ? "idle" : ""}`}/>
-              <span>{t.name}</span>
-              <Icon name="x" size={10} className="close"/>
-            </button>
-          ))}
-          <button className="tab-add" title="New agent session"><Icon name="plus" size={12}/></button>
+          {list.length === 0 && (
+            <span className="muted" style={{ fontSize: 11.5, padding: '0 6px', color: 'var(--text-mute)' }}>
+              no agents yet
+            </span>
+          )}
+          {list.map(a => {
+            const dotClass = a.status === 'running' ? 'thinking'
+                           : a.status === 'errored'  ? 'error'
+                           : a.status === 'idle'     ? 'idle'
+                           : '';
+            return (
+              <button
+                key={a.id}
+                className={`tab ${currentAgentId === a.id ? 'active' : ''}`}
+                onClick={() => selectAgent(a.id)}
+              >
+                <span className={`dot ${dotClass}`}/>
+                <span>{a.slug}</span>
+                <span
+                  className="close"
+                  onClick={(e) => { e.stopPropagation(); closeAgent(a.id); }}
+                  style={{ display: 'flex', alignItems: 'center' }}
+                >
+                  <Icon name="x" size={10}/>
+                </span>
+              </button>
+            );
+          })}
+          <button className="tab-add" title="New agent session" onClick={onNew}>
+            <Icon name="plus" size={12}/>
+          </button>
         </div>
 
-        <div className="branch">
+        <button
+          className="branch"
+          onClick={openPicker}
+          title={draftProject ? draftProject.path : 'Pick a project'}
+          style={{ cursor: 'pointer', background: 'none', border: 'none' }}
+        >
           <span className="gitdot"/>
-          <Icon name="branch" size={11}/>
-          feat/orb-ui
-          <Icon name="chevron" size={10} style={{opacity:0.5}}/>
-        </div>
+          <Icon name="folder" size={11}/>
+          {draftProject ? draftProject.name : 'no project'}
+          <Icon name="chevron" size={10} style={{ opacity: 0.5 }}/>
+        </button>
       </div>
 
       <div className="topbar-right">
-        <div className="token-meter" title="Context window">
-          <Icon name="layers" size={11} style={{color:"var(--violet-300)"}}/>
-          <span>84,212 <span style={{color:"var(--text-mute)"}}>/ 200k</span></span>
-          <div className="bar"><div className="bar-fill"/></div>
+        <div className="token-meter" title="Total tokens across active session">
+          <Icon name="layers" size={11} style={{ color: 'var(--violet-300)' }}/>
+          <span>{totalTokens.toLocaleString()} <span style={{ color: 'var(--text-mute)' }}>tokens</span></span>
         </div>
-        <div className="token-meter" title="Cost this session">
-          <Icon name="bolt" size={11} style={{color:"var(--cyan-300)"}}/>
-          <span>$0.42 <span style={{color:"var(--text-mute)"}}>· 14m</span></span>
+        <div className="token-meter" title="Cost across active session">
+          <Icon name="bolt" size={11} style={{ color: 'var(--cyan-300)' }}/>
+          <span>${totalCost.toFixed(4)}</span>
         </div>
         <button className="icon-btn" title="History"><Icon name="history" size={15}/></button>
         <button className="icon-btn" title="Settings"><Icon name="settings" size={15}/></button>
-        <div className="avatar">MW</div>
+        <div className="avatar">NW</div>
       </div>
     </header>
   );
