@@ -24,8 +24,6 @@
       textarea { flex: 1; resize: none; min-height: 60px; }
       button { background: var(--accent); color: var(--bg); border: none; cursor: pointer; font-weight: 600; }
       button:disabled { opacity: 0.5; cursor: wait; }
-      /* Cards container */
-      #stream { padding: 12px 16px; overflow: auto; }
 
       /* Slim status rows (no border, no padding) */
       .streamrow { padding: 4px 8px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; }
@@ -179,6 +177,131 @@
         .modal { padding: 0; }
         .modal-panel { max-width: 100%; max-height: 100vh; border-radius: 0; height: 100vh; }
       }
+
+      /* ── Stage wrap (replaces #stream) ── */
+      #stageWrap {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+      }
+      #stageHeader {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 16px;
+        border-bottom: 1px solid var(--border);
+        background: var(--panel);
+        min-height: 40px;
+      }
+      #stageCount { color: var(--muted); font-size: 11px; }
+      #backToGrid {
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--accent);
+        padding: 4px 10px;
+        border-radius: 4px;
+        cursor: pointer;
+        font: inherit;
+        font-size: 11px;
+        min-height: 28px;
+      }
+      #backToGrid:hover { background: rgba(94,234,212,0.08); }
+
+      #stage {
+        flex: 1;
+        display: grid;
+        gap: 10px;
+        padding: 10px;
+        overflow: auto;
+        min-height: 0;
+        grid-template-columns: 1fr;
+        grid-template-rows: 1fr;
+      }
+      #stage[data-count="2"] { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; }
+      #stage[data-count="3"], #stage[data-count="4"] { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+      #stage[data-count="5"], #stage[data-count="6"], #stage[data-count="7"], #stage[data-count="8"], #stage[data-count="9"] { grid-template-columns: 1fr 1fr 1fr; grid-auto-rows: minmax(220px, 1fr); }
+
+      #stage[data-focused] .agent-tile:not(.focused) { display: none; }
+      #stage[data-focused] .agent-tile.focused { grid-column: 1 / -1; grid-row: 1 / -1; }
+
+      .agent-tile {
+        position: relative;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        cursor: pointer;
+        animation: tile-fadein 240ms cubic-bezier(0.4, 0, 0.2, 1) both;
+        will-change: transform;
+      }
+      .agent-tile:hover:not(.focused) { border-color: var(--accent); }
+      .agent-tile.focused { cursor: default; border-color: var(--accent); }
+
+      @keyframes tile-fadein {
+        from { opacity: 0; transform: scale(0.96); }
+        to { opacity: 1; transform: scale(1); }
+      }
+
+      .agent-tile-header {
+        padding: 8px 12px;
+        background: var(--bg);
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 11px;
+        min-height: 36px;
+      }
+      .agent-tile-name { font-weight: 600; color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .agent-tile-meta { color: var(--muted); flex-shrink: 0; }
+
+      .status-dot {
+        width: 8px; height: 8px;
+        border-radius: 50%;
+        background: var(--muted);
+        flex-shrink: 0;
+        position: relative;
+      }
+      .status-dot.running { background: var(--accent); animation: dot-pulse 1.4s ease-in-out infinite; }
+      .status-dot.completed { background: var(--accent); }
+      .status-dot.errored { background: #fb7185; }
+
+      @keyframes dot-pulse {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(94,234,212,0.5); }
+        70% { box-shadow: 0 0 0 8px rgba(94,234,212,0); }
+      }
+
+      .agent-tile-stream {
+        flex: 1;
+        overflow: auto;
+        padding: 10px 14px;
+        min-height: 0;
+      }
+
+      .agent-tile-footer-hint {
+        padding: 6px 12px;
+        text-align: center;
+        font-size: 10px;
+        color: var(--muted);
+        border-top: 1px dashed var(--border);
+        pointer-events: none;
+      }
+      .agent-tile.focused .agent-tile-footer-hint { display: none; }
+
+      /* Mobile: tiles always stack on small screens */
+      @media (max-width: 640px) {
+        #stage[data-count] { grid-template-columns: 1fr; }
+        #stage[data-count="3"], #stage[data-count="4"], #stage[data-count="5"],
+        #stage[data-count="6"], #stage[data-count="7"], #stage[data-count="8"], #stage[data-count="9"] {
+          grid-template-columns: 1fr;
+          grid-template-rows: auto;
+        }
+      }
     </style>
   </head>
   <body>
@@ -197,7 +320,14 @@
           <button type="submit" id="sendBtn" disabled>Send</button>
         </div>
       </form>
-      <div id="stream"></div>
+
+      <section id="stageWrap">
+        <div id="stageHeader">
+          <button type="button" id="backToGrid" hidden>← all agents (<span id="backCount">0</span>)</button>
+          <div id="stageCount" class="muted-text">0 agents</div>
+        </div>
+        <div id="stage" data-count="0"></div>
+      </section>
 
       <!-- Folder-picker modal — populated entirely by JS via createElement + textContent -->
       <div id="pickerModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="pickerTitle">
@@ -216,7 +346,9 @@
     </main>
     <script>
       const wsUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
-      const stream = document.getElementById('stream');
+      const stage = document.getElementById('stage');
+      const backBtn = document.getElementById('backToGrid');
+      const backCount = document.getElementById('backCount');
       const form = document.getElementById('spawn');
       const promptInput = document.getElementById('prompt');
       const sendBtn = document.getElementById('sendBtn');
@@ -229,13 +361,162 @@
       let currentProject = null; // { path, name, hasDesignMd }
       let pickerState = { view: 'top', root: null, data: null };
 
+      const agents = new Map(); // agentId -> { tile, streamEl, name, status, tokens, cost }
+      const agentTextCard = new Map(); // agentId -> current assistant text card element (or null)
+      const pendingPrompts = new Map(); // agentId -> prompt slug (set before first envelope arrives)
+      let focusedAgentId = null;
+
+      // ── stage / tile management ─────────────────────────────────────────────
+      function ensureAgentTile(agentId) {
+        let entry = agents.get(agentId);
+        if (entry) return entry;
+
+        const tile = document.createElement('section');
+        tile.className = 'agent-tile';
+        tile.dataset.agentId = agentId;
+
+        const tileHeader = document.createElement('header');
+        tileHeader.className = 'agent-tile-header';
+
+        const dot = document.createElement('span');
+        dot.className = 'status-dot running';
+        dot.setAttribute('aria-label', 'running');
+
+        const nameEl = document.createElement('span');
+        nameEl.className = 'agent-tile-name';
+        nameEl.textContent = pendingPrompts.get(agentId) ?? agentId.slice(0, 12);
+
+        const metaEl = document.createElement('span');
+        metaEl.className = 'agent-tile-meta';
+        metaEl.textContent = '…';
+
+        tileHeader.append(dot, nameEl, metaEl);
+
+        const streamEl = document.createElement('div');
+        streamEl.className = 'agent-tile-stream';
+
+        const hint = document.createElement('div');
+        hint.className = 'agent-tile-footer-hint';
+        hint.textContent = 'tap to focus';
+
+        tile.append(tileHeader, streamEl, hint);
+
+        tile.addEventListener('click', (ev) => {
+          if (ev.target.closest('.bubble')) return;
+          if (focusedAgentId === agentId) return;
+          focusAgent(agentId);
+        });
+
+        stage.appendChild(tile);
+
+        entry = { tile, streamEl, name: nameEl.textContent, status: 'running', tokens: 0, cost: 0 };
+        agents.set(agentId, entry);
+        updateStageCount();
+        return entry;
+      }
+
+      function updateStageCount() {
+        const n = agents.size;
+        stage.dataset.count = String(Math.min(n, 9));
+        const label = document.getElementById('stageCount');
+        if (n === 0) label.textContent = '0 agents';
+        else if (n === 1) label.textContent = '1 agent';
+        else label.textContent = `${n} agents`;
+      }
+
+      // ── FLIP zoom animations ────────────────────────────────────────────────
+      function focusAgent(agentId) {
+        const entry = agents.get(agentId);
+        if (!entry) return;
+
+        // FIRST: measure tile's current rect (grid position)
+        const first = entry.tile.getBoundingClientRect();
+
+        // LAST: apply focused state — CSS expands tile to fill stage
+        focusedAgentId = agentId;
+        document.body.dataset.focused = 'true';
+        stage.dataset.focused = agentId;
+        entry.tile.classList.add('focused');
+        backCount.textContent = String(agents.size);
+        backBtn.hidden = false;
+
+        const last = entry.tile.getBoundingClientRect();
+
+        // INVERT: compute transform that makes tile visually start at first position
+        const dx = first.left - last.left;
+        const dy = first.top - last.top;
+        const sx = first.width / last.width;
+        const sy = first.height / last.height;
+
+        entry.tile.style.transformOrigin = '0 0';
+        entry.tile.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
+        entry.tile.style.transition = 'none';
+        // Force layout flush
+        void entry.tile.offsetWidth;
+
+        // PLAY: animate to natural (final) position
+        entry.tile.style.transition = 'transform 320ms cubic-bezier(0.4, 0, 0.2, 1)';
+        entry.tile.style.transform = '';
+
+        const cleanup = () => {
+          entry.tile.style.transition = '';
+          entry.tile.style.transformOrigin = '';
+        };
+        entry.tile.addEventListener('transitionend', cleanup, { once: true });
+      }
+
+      function unfocusAgent() {
+        if (!focusedAgentId) return;
+        const entry = agents.get(focusedAgentId);
+        if (!entry) {
+          document.body.dataset.focused = '';
+          delete stage.dataset.focused;
+          focusedAgentId = null;
+          backBtn.hidden = true;
+          return;
+        }
+
+        // FIRST: focused rect (big/expanded position)
+        const first = entry.tile.getBoundingClientRect();
+
+        // LAST: remove focused state — tile snaps back to grid
+        entry.tile.classList.remove('focused');
+        document.body.dataset.focused = '';
+        delete stage.dataset.focused;
+        focusedAgentId = null;
+        backBtn.hidden = true;
+
+        const last = entry.tile.getBoundingClientRect();
+
+        const dx = first.left - last.left;
+        const dy = first.top - last.top;
+        const sx = first.width / last.width;
+        const sy = first.height / last.height;
+
+        entry.tile.style.transformOrigin = '0 0';
+        entry.tile.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
+        entry.tile.style.transition = 'none';
+        void entry.tile.offsetWidth;
+
+        entry.tile.style.transition = 'transform 320ms cubic-bezier(0.4, 0, 0.2, 1)';
+        entry.tile.style.transform = '';
+
+        const cleanup = () => {
+          entry.tile.style.transition = '';
+          entry.tile.style.transformOrigin = '';
+        };
+        entry.tile.addEventListener('transitionend', cleanup, { once: true });
+      }
+
+      backBtn.addEventListener('click', unfocusAgent);
+
       // ── websocket ───────────────────────────────────────────────────────────
       let ws;
       function connect() {
         ws = new WebSocket(wsUrl);
-        ws.onopen = () => append('system', 'WS connected');
-        ws.onclose = () => { append('system', 'WS closed, retry in 2s'); setTimeout(connect, 2000); };
-        ws.onerror = () => append('stderr', 'WS error');
+        ws.onopen = () => appendSystem('WS connected');
+        ws.onclose = () => { appendSystem('WS closed, retry in 2s'); setTimeout(connect, 2000); };
+        ws.onerror = () => appendSystemErr('WS error');
         ws.onmessage = (ev) => {
           let env;
           try { env = JSON.parse(ev.data); } catch { return; }
@@ -248,39 +529,80 @@
       // All DOM writes use createElement + textContent — NEVER innerHTML.
       // Agent output is fully untrusted; treating it as plain text is the only safe move.
 
-      const agentTextCard = new Map(); // agentId -> current assistant text card element (or null/missing)
+      // Internal system messages (WS connect/disconnect/error) — no agentId, show in a floating row
+      function appendSystem(text) {
+        // Find the first tile stream to show system messages, or create a detached row
+        // For simplicity, if there's a focused agent, show in that tile; else broadcast to all
+        const targetEntry = focusedAgentId
+          ? agents.get(focusedAgentId)
+          : agents.values().next().value;
+        if (targetEntry) {
+          const fakeEnv = { kind: 'system', agentId: null, payload: { text } };
+          renderSlimRow(fakeEnv, `[system] ${String(text ?? '')}`, targetEntry.streamEl);
+        }
+        // If no tiles yet, silently discard (or could show in stageHeader — kept minimal)
+      }
 
-      // Thin wrapper for internal system messages (WS connect/disconnect/error)
-      function append(kind, text) {
-        const fakeEnv = { kind, payload: { text } };
-        renderSlimRow(fakeEnv, `[${kind}] ${String(text ?? '')}`);
+      function appendSystemErr(text) {
+        const targetEntry = focusedAgentId
+          ? agents.get(focusedAgentId)
+          : agents.values().next().value;
+        if (targetEntry) {
+          const fakeEnv = { kind: 'stderr', agentId: null, payload: { text } };
+          renderSlimRow(fakeEnv, `[error] ${String(text ?? '')}`, targetEntry.streamEl);
+        }
       }
 
       function renderEnvelope(env) {
+        const entry = ensureAgentTile(env.agentId);
+        const tileStream = entry.streamEl;
+
         // Slim rows for these kinds
         if (env.kind === 'system_init') {
           const p = env.payload ?? {};
-          return renderSlimRow(env, `⌘ ${p.model ?? '?'} @ ${p.cwd ?? '?'}`);
+          renderSlimRow(env, `⌘ ${p.model ?? '?'} @ ${p.cwd ?? '?'}`, tileStream);
+          return;
         }
         if (env.kind === 'result') {
           const p = env.payload ?? {};
           const usage = p.usage ?? {};
-          return renderSlimRow(env, `✓ ${usage.input_tokens ?? 0} in · ${usage.output_tokens ?? 0} out · $${(p.total_cost_usd ?? 0).toFixed(4)} · ${p.duration_ms ?? 0}ms`);
+          const totalTokens = (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0);
+          renderSlimRow(env, `✓ ${usage.input_tokens ?? 0} in · ${usage.output_tokens ?? 0} out · $${(p.total_cost_usd ?? 0).toFixed(4)} · ${p.duration_ms ?? 0}ms`, tileStream);
+          // Update tile header metadata
+          const metaEl = entry.tile.querySelector('.agent-tile-meta');
+          metaEl.textContent = `${totalTokens} tk · $${(p.total_cost_usd ?? 0).toFixed(3)}`;
+          const dot = entry.tile.querySelector('.status-dot');
+          dot.className = 'status-dot completed';
+          dot.setAttribute('aria-label', 'completed');
+          return;
         }
-        if (env.kind === 'exit') return renderSlimRow(env, `× exit ${env.payload?.code ?? '?'}`);
-        if (env.kind === 'stderr') return renderSlimRow(env, env.payload?.text ?? '');
+        if (env.kind === 'exit') {
+          renderSlimRow(env, `× exit ${env.payload?.code ?? '?'}`, tileStream);
+          if ((env.payload?.code ?? 0) !== 0) {
+            const dot = entry.tile.querySelector('.status-dot');
+            dot.className = 'status-dot errored';
+            dot.setAttribute('aria-label', 'errored');
+            const metaEl = entry.tile.querySelector('.agent-tile-meta');
+            metaEl.textContent = `exit ${env.payload?.code ?? '?'}`;
+          }
+          return;
+        }
+        if (env.kind === 'stderr') {
+          renderSlimRow(env, env.payload?.text ?? '', tileStream);
+          return;
+        }
 
-        // partial_text → aggregate into current assistant card
+        // partial_text → aggregate into current assistant card for this agent
         if (env.kind === 'partial_text') {
           let card = agentTextCard.get(env.agentId);
           if (!card) {
             card = makeBubble(env, '', 'text', 'assistant');
             agentTextCard.set(env.agentId, card);
-            stream.appendChild(card);
+            tileStream.appendChild(card);
           }
           const body = card.querySelector('.bubble-body');
           body.textContent += env.payload?.delta ?? '';
-          autoScroll();
+          autoScroll(tileStream);
           return;
         }
 
@@ -289,15 +611,14 @@
           let card = agentTextCard.get(env.agentId);
           if (!card) {
             card = makeBubble(env, env.payload?.text ?? '', 'text', 'assistant');
-            stream.appendChild(card);
+            tileStream.appendChild(card);
           } else {
             const body = card.querySelector('.bubble-body');
             body.textContent = env.payload?.text ?? '';
-            // Update data-envelope to the final 'text' kind envelope
             card.dataset.envelope = JSON.stringify(env);
           }
           agentTextCard.set(env.agentId, null); // close — next partial creates new card
-          autoScroll();
+          autoScroll(tileStream);
           return;
         }
 
@@ -306,29 +627,29 @@
 
         if (env.kind === 'thinking') {
           const card = makeBubble(env, env.payload?.thinking ?? '', 'thinking', '💭 thinking');
-          stream.appendChild(card);
-          autoScroll();
+          tileStream.appendChild(card);
+          autoScroll(tileStream);
           return;
         }
         if (env.kind === 'tool_use') {
           const name = env.payload?.name ?? '?';
           const inputStr = JSON.stringify(env.payload?.input ?? {}, null, 2);
           const card = makeBubble(env, inputStr, 'tool_use', `🛠 ${name}`);
-          stream.appendChild(card);
-          autoScroll();
+          tileStream.appendChild(card);
+          autoScroll(tileStream);
           return;
         }
         if (env.kind === 'tool_result') {
           const content = env.payload?.content ?? '';
           const bodyText = typeof content === 'string' ? content : JSON.stringify(content, null, 2);
           const card = makeBubble(env, bodyText, 'tool_result', '↩ result');
-          stream.appendChild(card);
-          autoScroll();
+          tileStream.appendChild(card);
+          autoScroll(tileStream);
           return;
         }
 
         // Unknown kind — fallback slim row
-        renderSlimRow(env, `${env.kind}: ${JSON.stringify(env.payload ?? {})}`);
+        renderSlimRow(env, `${env.kind}: ${JSON.stringify(env.payload ?? {})}`, tileStream);
       }
 
       function makeBubble(env, bodyText, kindClass, headerLabel) {
@@ -369,19 +690,19 @@
         }
       }
 
-      function renderSlimRow(env, label) {
+      function renderSlimRow(env, label, tileStream) {
         const row = document.createElement('div');
         const safeKind = String(env.kind).replace(/[^a-z_]/gi, '_');
         row.className = `streamrow ${safeKind}`;
         row.textContent = label;
-        stream.appendChild(row);
-        autoScroll();
+        tileStream.appendChild(row);
+        autoScroll(tileStream);
       }
 
-      function autoScroll() {
+      function autoScroll(tileStream) {
         const THRESHOLD = 50;
-        const atBottom = stream.scrollTop + stream.clientHeight >= stream.scrollHeight - THRESHOLD;
-        if (atBottom) stream.scrollTop = stream.scrollHeight;
+        const atBottom = tileStream.scrollTop + tileStream.clientHeight >= tileStream.scrollHeight - THRESHOLD;
+        if (atBottom) tileStream.scrollTop = tileStream.scrollHeight;
       }
 
       // ── relative time ───────────────────────────────────────────────────────
@@ -598,24 +919,24 @@
         const { root, folders = [] } = drillData;
 
         // Back button / breadcrumb
-        const backBtn = document.createElement('button');
-        backBtn.type = 'button';
-        backBtn.className = 'picker-back';
+        const drillBackBtn = document.createElement('button');
+        drillBackBtn.type = 'button';
+        drillBackBtn.className = 'picker-back';
 
         const backArrow = document.createElement('span');
         backArrow.className = 'picker-back-arrow';
         backArrow.textContent = '⬅';
-        backBtn.appendChild(backArrow);
+        drillBackBtn.appendChild(backArrow);
 
         const breadcrumb = document.createElement('span');
         breadcrumb.textContent = root;
-        backBtn.appendChild(breadcrumb);
+        drillBackBtn.appendChild(breadcrumb);
 
-        backBtn.addEventListener('click', () => {
+        drillBackBtn.addEventListener('click', () => {
           pickerState = { view: 'top', root: null, data: pickerState.topData ?? pickerState.data };
           renderTopView(pickerState.data, pickerSearch.value);
         });
-        pickerBody.appendChild(backBtn);
+        pickerBody.appendChild(drillBackBtn);
 
         const filteredFolders = folders.filter(
           (f) => !q || f.name.toLowerCase().includes(q)
@@ -687,11 +1008,18 @@
 
       document.addEventListener('keydown', (ev) => {
         if (ev.key !== 'Escape') return;
+        // Priority order: picker → expanded bubble → focused agent
         if (!pickerModal.classList.contains('hidden')) {
           closePicker();
-        } else {
-          // Close any expanded bubble cards
-          document.querySelectorAll('.bubble.expanded').forEach((el) => toggleExpand(el));
+          return;
+        }
+        const expandedBubbles = document.querySelectorAll('.bubble.expanded');
+        if (expandedBubbles.length > 0) {
+          expandedBubbles.forEach((el) => toggleExpand(el));
+          return;
+        }
+        if (focusedAgentId) {
+          unfocusAgent();
         }
       });
 
@@ -702,6 +1030,7 @@
         sendBtn.disabled = true;
         const projectPath = currentProject.path;
         const prompt = promptInput.value.trim();
+        const slug = prompt.slice(0, 30).trim() + (prompt.length > 30 ? '…' : '');
         try {
           const r = await fetch('/api/agents', {
             method: 'POST',
@@ -709,13 +1038,16 @@
             body: JSON.stringify({ projectPath, prompt }),
           });
           const body = await r.json();
-          if (!r.ok) { append('stderr', JSON.stringify(body)); return; }
+          if (!r.ok) {
+            appendSystemErr(JSON.stringify(body));
+            return;
+          }
           const agentId = body.agentId;
-          append('system', `agent ${agentId} spawned`);
+          pendingPrompts.set(agentId, slug);
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ resume: { agentId, sinceSeq: -1 } }));
           } else {
-            append('stderr', `WS not open (state=${ws.readyState}); subscription lost — reconnect and retry`);
+            appendSystemErr(`WS not open (state=${ws.readyState}); subscription lost — reconnect and retry`);
           }
         } finally {
           sendBtn.disabled = false;
