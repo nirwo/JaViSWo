@@ -1,5 +1,5 @@
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 
 export type CockpitConfig = {
   host: string;
@@ -8,10 +8,13 @@ export type CockpitConfig = {
 };
 
 export function loadConfig(): CockpitConfig {
+  // serveStatic resolves root relative to process.cwd(), so we must supply
+  // a relative path — not the absolute dirname-based path.
+  const absPublic = join(import.meta.dirname, '..', 'public');
   return {
     host: process.env.COCKPIT_HOST ?? '0.0.0.0',
     port: Number(process.env.COCKPIT_PORT ?? 8787),
-    publicDir: join(import.meta.dirname, '..', 'public'),
+    publicDir: relative(process.cwd(), absPublic),
   };
 }
 

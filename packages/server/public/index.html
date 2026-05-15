@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Cockpit M1</title>
+    <style>
+      :root {
+        --bg: #0a0d12;
+        --panel: #0e1218;
+        --border: #1a1f2a;
+        --text: #d4d8e0;
+        --muted: #94a3b8;
+        --accent: #5eead4;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, sans-serif; }
+      header { padding: 12px 16px; background: var(--panel); border-bottom: 1px solid var(--border); }
+      h1 { font-size: 14px; margin: 0; color: var(--accent); }
+      main { display: grid; grid-template-rows: auto 1fr; height: calc(100vh - 50px); }
+      form { display: flex; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+      input, textarea, button { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; }
+      textarea { flex: 1; resize: none; min-height: 60px; }
+      button { background: var(--accent); color: var(--bg); border: none; cursor: pointer; font-weight: 600; }
+      button:disabled { opacity: 0.5; cursor: wait; }
+      #stream { padding: 12px 16px; overflow: auto; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; }
+      .row { padding: 4px 0; border-bottom: 1px dotted var(--border); white-space: pre-wrap; word-break: break-word; }
+      .kind { color: var(--muted); margin-right: 8px; }
+      .text { color: var(--text); }
+      .partial_text { color: var(--accent); }
+      .thinking { color: var(--accent); opacity: 0.7; }
+      .tool_use { color: #fbbf24; }
+      .stderr { color: #fb7185; }
+      .exit, .result { color: var(--muted); font-style: italic; }
+    </style>
+  </head>
+  <body>
+    <header><h1>⌘ Cockpit · M1</h1></header>
+    <main>
+      <form id="spawn">
+        <input id="project" placeholder="/abs/path/to/project" required style="flex: 1;" />
+        <textarea id="prompt" placeholder="Prompt for the agent…" required></textarea>
+        <button type="submit">Send</button>
+      </form>
+      <div id="stream"></div>
+    </main>
+    <script>
+      const wsUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
+      const stream = document.getElementById('stream');
+      const form = document.getElementById('spawn');
+      const projectInput = document.getElementById('project');
+      const promptInput = document.getElementById('prompt');
+      const sendBtn = form.querySelector('button');
+
+      let ws;
+      function connect() {
+        ws = new WebSocket(wsUrl);
+        ws.onopen = () => append('system', 'WS connected');
+        ws.onclose = () => { append('system', 'WS closed, retry in 2s'); setTimeout(connect, 2000); };
+        ws.onerror = () => append('stderr', 'WS error');
+        ws.onmessage = (ev) => {
+          let env;
+          try { env = JSON.parse(ev.data); } catch { return; }
+          renderEnvelope(env);
+        };
+      }
+      connect();
+
+      // Build the row with createElement + textContent — NEVER use the other DOM-write API.
+      // Agent output is fully untrusted; treating it as plain text is the only safe move.
+      function append(kind, text) {
+        const safeKind = String(kind).replace(/[^a-z_]/gi, '_');
+        const row = document.createElement('div');
+        row.className = `row ${safeKind}`;
+        const kindSpan = document.createElement('span');
+        kindSpan.className = 'kind';
+        kindSpan.textContent = `[${kind}]`;
+        const bodySpan = document.createElement('span');
+        bodySpan.textContent = String(text ?? '');
+        row.append(kindSpan, bodySpan);
+        stream.appendChild(row);
+        stream.scrollTop = stream.scrollHeight;
+      }
+
+      function renderEnvelope(env) {
+        const p = env.payload ?? {};
+        let text = '';
+        if (env.kind === 'system_init') text = `model=${p.model} cwd=${p.cwd}`;
+        else if (env.kind === 'text') text = p.text;
+        else if (env.kind === 'partial_text') text = p.delta;
+        else if (env.kind === 'thinking') text = `${p.thinking}`;
+        else if (env.kind === 'tool_use') text = `${p.name}(${JSON.stringify(p.input)})`;
+        else if (env.kind === 'result') text = `cost=$${p.total_cost_usd ?? 0} dur=${p.duration_ms ?? 0}ms`;
+        else if (env.kind === 'stderr') text = p.text;
+        else if (env.kind === 'exit') text = `exit code ${p.code}`;
+        else text = JSON.stringify(p);
+        append(env.kind, text);
+      }
+
+      form.addEventListener('submit', async (ev) => {
+        ev.preventDefault();
+        sendBtn.disabled = true;
+        const projectPath = projectInput.value.trim();
+        const prompt = promptInput.value.trim();
+        try {
+          const r = await fetch('/api/agents', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ projectPath, prompt }),
+          });
+          const body = await r.json();
+          if (!r.ok) { append('stderr', JSON.stringify(body)); return; }
+          const agentId = body.agentId;
+          append('system', `agent ${agentId} spawned`);
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ resume: { agentId, sinceSeq: -1 } }));
+          } else {
+            append('stderr', `WS not open (state=${ws.readyState}); subscription lost — reconnect and retry`);
+          }
+        } finally {
+          sendBtn.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>
