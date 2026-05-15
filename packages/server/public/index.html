@@ -15,7 +15,7 @@
       }
       * { box-sizing: border-box; }
       body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, sans-serif; }
-      header { padding: 12px 16px; background: var(--panel); border-bottom: 1px solid var(--border); }
+      header { padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--border); }
       h1 { font-size: 14px; margin: 0; color: var(--accent); }
       main { display: grid; grid-template-rows: auto 1fr; height: calc(100vh - 50px); }
       form { display: flex; flex-direction: column; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
@@ -26,10 +26,11 @@
       button:disabled { opacity: 0.5; cursor: wait; }
 
       /* Slim status rows (no border, no padding) */
-      .streamrow { padding: 4px 8px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; }
+      .streamrow { padding: 4px 8px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; display: flex; align-items: center; gap: 5px; }
       .streamrow.system_init { color: var(--accent); }
       .streamrow.result { color: var(--muted); border-top: 1px dotted var(--border); border-bottom: 1px dotted var(--border); margin: 8px 0; padding: 6px 8px; }
       .streamrow.exit { color: var(--muted); font-style: italic; }
+      .streamrow.exit.exit-error { color: #fb7185; }
       .streamrow.stderr { color: #fb7185; }
       .streamrow.system { color: var(--muted); font-style: italic; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; padding: 4px 8px; }
 
@@ -42,7 +43,7 @@
       .bubble:hover { background: rgba(94,234,212,0.1); }
       .bubble.expanded { background: rgba(94,234,212,0.12); }
 
-      .bubble .bubble-header { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin-bottom: 4px; }
+      .bubble .bubble-header { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin-bottom: 4px; display: flex; align-items: center; gap: 5px; }
       .bubble .bubble-body { font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; color: var(--text); }
       .bubble .bubble-icon { margin-right: 6px; }
       .bubble .card-raw { margin-top: 8px; padding: 8px; background: #050709; border: 1px solid var(--border); border-radius: 6px; font-size: 10px; color: var(--muted); overflow: auto; max-height: 200px; white-space: pre; }
@@ -230,6 +231,7 @@
         position: relative;
         background: var(--panel);
         border: 1px solid var(--border);
+        border-left: 3px solid hsl(var(--tile-hue, 174), 50%, 50%);
         border-radius: 10px;
         display: flex;
         flex-direction: column;
@@ -256,25 +258,49 @@
         font-family: 'JetBrains Mono', ui-monospace, monospace;
         font-size: 11px;
         min-height: 36px;
+        flex-wrap: wrap;
       }
-      .agent-tile-name { font-weight: 600; color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .agent-tile-name { font-weight: 600; color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
       .agent-tile-meta { color: var(--muted); flex-shrink: 0; }
 
       .status-dot {
-        width: 8px; height: 8px;
+        width: 10px; height: 10px;
         border-radius: 50%;
         background: var(--muted);
         flex-shrink: 0;
         position: relative;
       }
-      .status-dot.running { background: var(--accent); animation: dot-pulse 1.4s ease-in-out infinite; }
+      .status-dot.running { background: var(--accent); animation: dot-pulse 1.6s ease-in-out infinite; box-shadow: 0 0 0 0 rgba(94,234,212,0.45); }
       .status-dot.completed { background: var(--accent); }
       .status-dot.errored { background: #fb7185; }
 
       @keyframes dot-pulse {
-        0%, 100% { box-shadow: 0 0 0 0 rgba(94,234,212,0.5); }
+        0%, 100% { box-shadow: 0 0 0 0 rgba(94,234,212,0.45); }
         70% { box-shadow: 0 0 0 8px rgba(94,234,212,0); }
       }
+
+      /* Tile running glow */
+      .agent-tile:has(.status-dot.running) { animation: tile-fadein 240ms cubic-bezier(0.4, 0, 0.2, 1) both, tile-glow 2.4s ease-in-out infinite; }
+      @keyframes tile-glow {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(94,234,212,0); }
+        50% { box-shadow: 0 0 0 1px rgba(94,234,212,0.15), 0 0 24px -4px rgba(94,234,212,0.15); }
+      }
+
+      /* Agent avatar monogram */
+      .agent-avatar {
+        width: 22px; height: 22px;
+        border-radius: 6px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 11px;
+        font-weight: 700;
+        flex-shrink: 0;
+      }
+
+      /* Token meter */
+      .token-meter { width: 100%; height: 2px; background: rgba(94,234,212,0.08); border-top: 1px solid var(--border); flex-basis: 100%; }
+      .token-meter-fill { height: 100%; background: var(--accent); width: 0; transition: width 320ms ease; }
 
       .agent-tile-stream {
         flex: 1;
@@ -302,22 +328,160 @@
           grid-template-rows: auto;
         }
       }
+
+      /* ── Topbar ── */
+      .topbar { display: flex; align-items: center; gap: 12px; }
+      .brand { display: flex; align-items: center; gap: 10px; }
+      .brand-mark {
+        width: 28px; height: 28px;
+        border-radius: 7px;
+        background: linear-gradient(135deg, rgba(94,234,212,0.18), rgba(94,234,212,0.04));
+        border: 1px solid rgba(94,234,212,0.4);
+        color: var(--accent);
+        display: inline-flex; align-items: center; justify-content: center;
+        flex-shrink: 0;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+      }
+      .brand-name { font-size: 14px; color: var(--text); font-weight: 600; letter-spacing: 0.3px; }
+      .topbar-spacer { flex: 1; }
+      .topbar-stats {
+        display: inline-flex; align-items: center; gap: 10px;
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .topbar-stats .agent-dots { display: inline-flex; gap: 3px; }
+      .topbar-stats .agent-dots .status-dot { width: 7px; height: 7px; }
+      #newAgentBtn {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 6px 12px; min-height: 30px;
+        border-radius: 999px;
+        background: rgba(94,234,212,0.12);
+        color: var(--accent);
+        border: 1px solid rgba(94,234,212,0.4);
+        cursor: pointer;
+        font: inherit; font-size: 12px; font-weight: 600;
+        transition: transform 120ms ease, background 120ms ease, box-shadow 120ms ease;
+      }
+      #newAgentBtn:hover { background: rgba(94,234,212,0.2); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(94,234,212,0.15); }
+      #newAgentBtn:active { transform: translateY(0); }
+      .icon { display: inline-block; vertical-align: -2px; flex-shrink: 0; }
+
+      /* ── Stage empty state ── */
+      .empty-state {
+        position: relative;
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 280px;
+        border-radius: 10px;
+        overflow: hidden;
+        grid-column: 1 / -1;
+        grid-row: 1 / -1;
+      }
+      .empty-state::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background-image: radial-gradient(rgba(94,234,212,0.08) 1px, transparent 1px);
+        background-size: 24px 24px;
+        animation: grid-drift 24s linear infinite;
+        pointer-events: none;
+      }
+      @keyframes grid-drift { to { background-position: 24px 24px; } }
+      .empty-state-content { position: relative; text-align: center; max-width: 360px; padding: 24px; }
+      .empty-state-mark {
+        width: 64px; height: 64px;
+        border-radius: 16px;
+        background: linear-gradient(135deg, rgba(94,234,212,0.18), rgba(94,234,212,0.04));
+        color: var(--accent);
+        display: inline-flex; align-items: center; justify-content: center;
+        margin: 0 auto 16px;
+        filter: drop-shadow(0 0 24px rgba(94,234,212,0.3));
+      }
+      .empty-state-title { font-size: 16px; color: var(--text); margin: 0 0 6px; font-weight: 600; }
+      .empty-state-sub { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 0; }
+      .empty-state-sub kbd {
+        display: inline-block; padding: 1px 6px;
+        border: 1px solid var(--border); border-radius: 4px;
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 10px; color: var(--text); background: var(--bg);
+      }
+
+      /* ── Command bar / form polish ── */
+      form#spawn { padding: 12px 16px; gap: 8px; flex-direction: column; align-items: stretch; border-bottom: 1px solid var(--border); background: var(--panel); }
+      .cmd-row { display: flex; gap: 8px; align-items: stretch; }
+      .cmd-textarea { flex: 1; min-height: 60px; max-height: 168px; resize: none; overflow-y: auto; }
+      .cmd-textarea:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 2px rgba(94,234,212,0.18); }
+
+      #projectChip.empty { animation: chip-pulse 2.4s ease-in-out infinite; }
+      @keyframes chip-pulse { 0%, 100% { border-color: var(--border); } 50% { border-color: var(--accent); } }
+
+      #sendBtn {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 0 18px; min-height: 40px;
+        border-radius: 999px;
+        background: var(--accent);
+        color: var(--bg);
+        font-weight: 600; border: none; cursor: pointer;
+        transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
+        white-space: nowrap;
+      }
+      #sendBtn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(94,234,212,0.25); }
+      #sendBtn:active:not(:disabled) { transform: translateY(0); }
+      #sendBtn:disabled { background: rgba(94,234,212,0.18); color: rgba(212,216,224,0.5); cursor: not-allowed; box-shadow: none; }
+
+      /* ── Card append animation ── */
+      .bubble, .streamrow { animation: card-in 240ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+      @keyframes card-in {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+
+      /* ── Mobile responsive ── */
+      @media (max-width: 640px) {
+        header { padding: 8px 10px; }
+        .topbar-stats { font-size: 10px; gap: 6px; }
+        .brand-name { font-size: 12px; }
+        #newAgentBtn .btn-label { display: none; }
+      }
     </style>
   </head>
   <body>
-    <header><h1>⌘ Cockpit · M1</h1></header>
+    <header>
+      <div class="topbar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true" id="headerBrandMark"></div>
+          <span class="brand-name">Cockpit</span>
+        </div>
+        <div class="topbar-spacer"></div>
+        <div class="topbar-stats" id="topbarStats" aria-live="polite">
+          <span class="agent-dots" id="agentDots"></span>
+          <span id="totalAgents">0 agents</span>
+          <span>·</span>
+          <span id="totalTokens">0 tk</span>
+          <span>·</span>
+          <span id="totalCost">$0.0000</span>
+        </div>
+        <button type="button" id="newAgentBtn" aria-label="New agent">
+          <span id="newAgentBtnIcon"></span>
+          <span class="btn-label">+ Agent</span>
+        </button>
+      </div>
+    </header>
     <main>
       <form id="spawn">
         <button
           type="button"
           id="projectChip"
-          class="chip"
+          class="chip empty"
           aria-haspopup="dialog"
           aria-controls="pickerModal"
         ></button>
-        <div class="form-row">
-          <textarea id="prompt" placeholder="Prompt for the agent…" required></textarea>
-          <button type="submit" id="sendBtn" disabled>Send</button>
+        <div class="cmd-row">
+          <textarea id="prompt" class="cmd-textarea" placeholder="Type a prompt… ⌘↵ to send" required></textarea>
+          <button type="submit" id="sendBtn" disabled></button>
         </div>
       </form>
 
@@ -345,6 +509,60 @@
       </div>
     </main>
     <script>
+      // ── Icon definitions (SVG strings for DOMParser, NOT innerHTML) ──────────
+      const ICONS = {
+        read:     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>`,
+        edit:     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`,
+        write:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`,
+        bash:     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>`,
+        search:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
+        thinking: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2z"/><path d="M14.5 2a2.5 2.5 0 0 0-2.5 2.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2z"/></svg>`,
+        agent:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>`,
+        tool:     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>`,
+        check:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`,
+        x:        `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+        send:     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`,
+        cmd:      `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 3a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3H6a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3V6a3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3h12a3 3 0 0 0 3-3 3 3 0 0 0-3-3z"/></svg>`,
+      };
+
+      // Parse SVG string via DOMParser — never innerHTML
+      function iconEl(name, size) {
+        const resolvedSize = size ?? 14;
+        const tpl = ICONS[name];
+        if (!tpl) return null;
+        const doc = new DOMParser().parseFromString(tpl, 'image/svg+xml');
+        const svg = doc.documentElement;
+        svg.setAttribute('width', String(resolvedSize));
+        svg.setAttribute('height', String(resolvedSize));
+        svg.classList.add('icon');
+        return svg;
+      }
+
+      // Tool name → icon key
+      function iconForTool(name) {
+        const n = String(name).toLowerCase();
+        if (n === 'read') return 'read';
+        if (n === 'edit' || n === 'multiedit' || n === 'notebookedit') return 'edit';
+        if (n === 'write') return 'write';
+        if (n === 'bash' || n === 'killshell' || n === 'bashoutput') return 'bash';
+        if (n === 'glob' || n === 'grep' || n.startsWith('web')) return 'search';
+        if (n === 'task' || n === 'agent') return 'agent';
+        return 'tool';
+      }
+
+      // Deterministic hash-based hue for agent identity
+      function agentHash(id) {
+        let h = 5381;
+        for (const c of id) h = ((h << 5) + h + c.charCodeAt(0)) >>> 0;
+        return h;
+      }
+      function agentHue(id) { return agentHash(id) % 360; }
+      function agentMonogram(name) {
+        const trimmed = String(name).trim();
+        return (trimmed[0] ?? '?').toUpperCase();
+      }
+
+      // ── DOM refs ─────────────────────────────────────────────────────────────
       const wsUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
       const stage = document.getElementById('stage');
       const backBtn = document.getElementById('backToGrid');
@@ -357,6 +575,24 @@
       const pickerSearch = document.getElementById('pickerSearch');
       const pickerBody = document.getElementById('pickerBody');
 
+      // ── Topbar icon + send button setup ─────────────────────────────────────
+      (function initStaticIcons() {
+        const brandMark = document.getElementById('headerBrandMark');
+        const cmdIcon = iconEl('cmd', 16);
+        if (cmdIcon) brandMark.appendChild(cmdIcon);
+
+        const newAgentBtnIcon = document.getElementById('newAgentBtnIcon');
+        // Use a simple + text since send icon doesn't fit "new agent" semantically
+        newAgentBtnIcon.textContent = '+';
+
+        // Send button: icon + label
+        const sendIcon = iconEl('send', 14);
+        if (sendIcon) sendBtn.appendChild(sendIcon);
+        const sendLabel = document.createElement('span');
+        sendLabel.textContent = 'Send';
+        sendBtn.appendChild(sendLabel);
+      })();
+
       // ── module-level state ──────────────────────────────────────────────────
       let currentProject = null; // { path, name, hasDesignMd }
       let pickerState = { view: 'top', root: null, data: null };
@@ -366,17 +602,104 @@
       const pendingPrompts = new Map(); // agentId -> prompt slug (set before first envelope arrives)
       let focusedAgentId = null;
 
+      // ── topbar aggregate update ───────────────────────────────────────────
+      function updateTopbar() {
+        const totalAgentsEl = document.getElementById('totalAgents');
+        const totalTokensEl = document.getElementById('totalTokens');
+        const totalCostEl = document.getElementById('totalCost');
+        const agentDotsEl = document.getElementById('agentDots');
+
+        const n = agents.size;
+        totalAgentsEl.textContent = n === 1 ? '1 agent' : `${n} agents`;
+
+        let sumTokens = 0;
+        let sumCost = 0;
+        for (const entry of agents.values()) {
+          sumTokens += entry.tokens ?? 0;
+          sumCost += entry.cost ?? 0;
+        }
+
+        if (sumTokens >= 1000) {
+          totalTokensEl.textContent = `${(sumTokens / 1000).toFixed(1)}k tk`;
+        } else {
+          totalTokensEl.textContent = `${sumTokens} tk`;
+        }
+        totalCostEl.textContent = `$${sumCost.toFixed(4)}`;
+
+        // Rebuild agent dots
+        while (agentDotsEl.firstChild) agentDotsEl.removeChild(agentDotsEl.firstChild);
+        for (const [id, entry] of agents) {
+          const dot = document.createElement('span');
+          dot.className = `status-dot ${entry.status ?? 'running'}`;
+          dot.setAttribute('aria-label', entry.status ?? 'running');
+          dot.title = entry.name ?? id;
+          agentDotsEl.appendChild(dot);
+        }
+      }
+
+      // ── empty state management ────────────────────────────────────────────
+      function renderEmptyState() {
+        if (stage.querySelector('.empty-state')) return;
+        const es = document.createElement('div');
+        es.className = 'empty-state';
+
+        const content = document.createElement('div');
+        content.className = 'empty-state-content';
+
+        const mark = document.createElement('div');
+        mark.className = 'empty-state-mark';
+        const markIcon = iconEl('cmd', 36);
+        if (markIcon) mark.appendChild(markIcon);
+        content.appendChild(mark);
+
+        const title = document.createElement('h2');
+        title.className = 'empty-state-title';
+        title.textContent = 'Spawn your first agent';
+        content.appendChild(title);
+
+        const sub = document.createElement('p');
+        sub.className = 'empty-state-sub';
+        sub.appendChild(document.createTextNode('Pick a project, type a prompt, hit '));
+        const kbd = document.createElement('kbd');
+        kbd.textContent = '⌘↵';
+        sub.appendChild(kbd);
+        sub.appendChild(document.createTextNode(' Send'));
+        content.appendChild(sub);
+
+        es.appendChild(content);
+        stage.appendChild(es);
+      }
+
+      function removeEmptyState() {
+        const es = stage.querySelector('.empty-state');
+        if (es) es.remove();
+      }
+
       // ── stage / tile management ─────────────────────────────────────────────
       function ensureAgentTile(agentId) {
         let entry = agents.get(agentId);
         if (entry) return entry;
 
+        // Remove empty state on first tile
+        removeEmptyState();
+
         const tile = document.createElement('section');
         tile.className = 'agent-tile';
         tile.dataset.agentId = agentId;
 
+        const hue = agentHue(agentId);
+        tile.style.setProperty('--tile-hue', String(hue));
+
         const tileHeader = document.createElement('header');
         tileHeader.className = 'agent-tile-header';
+
+        // Avatar monogram
+        const avatar = document.createElement('span');
+        avatar.className = 'agent-avatar';
+        avatar.style.background = `hsl(${hue}, 55%, 28%)`;
+        avatar.style.color = `hsl(${hue}, 65%, 75%)`;
+        const promptSlug = pendingPrompts.get(agentId) ?? agentId.slice(4);
+        avatar.textContent = agentMonogram(promptSlug);
 
         const dot = document.createElement('span');
         dot.className = 'status-dot running';
@@ -390,7 +713,14 @@
         metaEl.className = 'agent-tile-meta';
         metaEl.textContent = '…';
 
-        tileHeader.append(dot, nameEl, metaEl);
+        // Token meter
+        const meter = document.createElement('div');
+        meter.className = 'token-meter';
+        const meterFill = document.createElement('div');
+        meterFill.className = 'token-meter-fill';
+        meter.appendChild(meterFill);
+
+        tileHeader.append(avatar, dot, nameEl, metaEl, meter);
 
         const streamEl = document.createElement('div');
         streamEl.className = 'agent-tile-stream';
@@ -412,6 +742,7 @@
         entry = { tile, streamEl, name: nameEl.textContent, status: 'running', tokens: 0, cost: 0 };
         agents.set(agentId, entry);
         updateStageCount();
+        updateTopbar();
         return entry;
       }
 
@@ -419,9 +750,14 @@
         const n = agents.size;
         stage.dataset.count = String(Math.min(n, 9));
         const label = document.getElementById('stageCount');
-        if (n === 0) label.textContent = '0 agents';
-        else if (n === 1) label.textContent = '1 agent';
-        else label.textContent = `${n} agents`;
+        if (n === 0) {
+          label.textContent = '0 agents';
+          renderEmptyState();
+        } else if (n === 1) {
+          label.textContent = '1 agent';
+        } else {
+          label.textContent = `${n} agents`;
+        }
       }
 
       // ── FLIP zoom animations ────────────────────────────────────────────────
@@ -429,10 +765,8 @@
         const entry = agents.get(agentId);
         if (!entry) return;
 
-        // FIRST: measure tile's current rect (grid position)
         const first = entry.tile.getBoundingClientRect();
 
-        // LAST: apply focused state — CSS expands tile to fill stage
         focusedAgentId = agentId;
         document.body.dataset.focused = 'true';
         stage.dataset.focused = agentId;
@@ -442,7 +776,6 @@
 
         const last = entry.tile.getBoundingClientRect();
 
-        // INVERT: compute transform that makes tile visually start at first position
         const dx = first.left - last.left;
         const dy = first.top - last.top;
         const sx = first.width / last.width;
@@ -451,10 +784,8 @@
         entry.tile.style.transformOrigin = '0 0';
         entry.tile.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
         entry.tile.style.transition = 'none';
-        // Force layout flush
         void entry.tile.offsetWidth;
 
-        // PLAY: animate to natural (final) position
         entry.tile.style.transition = 'transform 320ms cubic-bezier(0.4, 0, 0.2, 1)';
         entry.tile.style.transform = '';
 
@@ -476,10 +807,8 @@
           return;
         }
 
-        // FIRST: focused rect (big/expanded position)
         const first = entry.tile.getBoundingClientRect();
 
-        // LAST: remove focused state — tile snaps back to grid
         entry.tile.classList.remove('focused');
         document.body.dataset.focused = '';
         delete stage.dataset.focused;
@@ -510,6 +839,12 @@
 
       backBtn.addEventListener('click', unfocusAgent);
 
+      // ── New Agent button ─────────────────────────────────────────────────────
+      document.getElementById('newAgentBtn').addEventListener('click', () => {
+        promptInput.focus();
+        promptInput.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      });
+
       // ── websocket ───────────────────────────────────────────────────────────
       let ws;
       function connect() {
@@ -529,10 +864,7 @@
       // All DOM writes use createElement + textContent — NEVER innerHTML.
       // Agent output is fully untrusted; treating it as plain text is the only safe move.
 
-      // Internal system messages (WS connect/disconnect/error) — no agentId, show in a floating row
       function appendSystem(text) {
-        // Find the first tile stream to show system messages, or create a detached row
-        // For simplicity, if there's a focused agent, show in that tile; else broadcast to all
         const targetEntry = focusedAgentId
           ? agents.get(focusedAgentId)
           : agents.values().next().value;
@@ -540,7 +872,6 @@
           const fakeEnv = { kind: 'system', agentId: null, payload: { text } };
           renderSlimRow(fakeEnv, `[system] ${String(text ?? '')}`, targetEntry.streamEl);
         }
-        // If no tiles yet, silently discard (or could show in stageHeader — kept minimal)
       }
 
       function appendSystemErr(text) {
@@ -557,33 +888,49 @@
         const entry = ensureAgentTile(env.agentId);
         const tileStream = entry.streamEl;
 
-        // Slim rows for these kinds
         if (env.kind === 'system_init') {
           const p = env.payload ?? {};
-          renderSlimRow(env, `⌘ ${p.model ?? '?'} @ ${p.cwd ?? '?'}`, tileStream);
+          renderSlimRow(env, `${p.model ?? '?'} @ ${p.cwd ?? '?'}`, tileStream);
           return;
         }
         if (env.kind === 'result') {
           const p = env.payload ?? {};
           const usage = p.usage ?? {};
           const totalTokens = (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0);
-          renderSlimRow(env, `✓ ${usage.input_tokens ?? 0} in · ${usage.output_tokens ?? 0} out · $${(p.total_cost_usd ?? 0).toFixed(4)} · ${p.duration_ms ?? 0}ms`, tileStream);
+          const cost = p.total_cost_usd ?? 0;
+          renderSlimRow(
+            env,
+            `${usage.input_tokens ?? 0} in · ${usage.output_tokens ?? 0} out · $${cost.toFixed(4)} · ${p.duration_ms ?? 0}ms`,
+            tileStream,
+          );
           // Update tile header metadata
           const metaEl = entry.tile.querySelector('.agent-tile-meta');
-          metaEl.textContent = `${totalTokens} tk · $${(p.total_cost_usd ?? 0).toFixed(3)}`;
+          metaEl.textContent = `${totalTokens} tk · $${cost.toFixed(3)}`;
           const dot = entry.tile.querySelector('.status-dot');
           dot.className = 'status-dot completed';
           dot.setAttribute('aria-label', 'completed');
+          // Update token meter (cost / $5 budget)
+          const MAX_BUDGET = 5;
+          const fill = entry.tile.querySelector('.token-meter-fill');
+          if (fill) fill.style.width = `${Math.min(cost / MAX_BUDGET, 1) * 100}%`;
+          // Update entry stats
+          entry.tokens = totalTokens;
+          entry.cost = cost;
+          entry.status = 'completed';
+          updateTopbar();
           return;
         }
         if (env.kind === 'exit') {
-          renderSlimRow(env, `× exit ${env.payload?.code ?? '?'}`, tileStream);
-          if ((env.payload?.code ?? 0) !== 0) {
+          const code = env.payload?.code ?? 0;
+          renderSlimRow(env, `exit ${code}`, tileStream, code !== 0 ? 'exit-error' : null);
+          if (code !== 0) {
             const dot = entry.tile.querySelector('.status-dot');
             dot.className = 'status-dot errored';
             dot.setAttribute('aria-label', 'errored');
             const metaEl = entry.tile.querySelector('.agent-tile-meta');
-            metaEl.textContent = `exit ${env.payload?.code ?? '?'}`;
+            metaEl.textContent = `exit ${code}`;
+            entry.status = 'errored';
+            updateTopbar();
           }
           return;
         }
@@ -617,16 +964,16 @@
             body.textContent = env.payload?.text ?? '';
             card.dataset.envelope = JSON.stringify(env);
           }
-          agentTextCard.set(env.agentId, null); // close — next partial creates new card
+          agentTextCard.set(env.agentId, null);
           autoScroll(tileStream);
           return;
         }
 
-        // Any other kind closes the assistant card and starts a new bubble
+        // Any other kind closes the assistant card
         agentTextCard.set(env.agentId, null);
 
         if (env.kind === 'thinking') {
-          const card = makeBubble(env, env.payload?.thinking ?? '', 'thinking', '💭 thinking');
+          const card = makeBubble(env, env.payload?.thinking ?? '', 'thinking', 'thinking', 'thinking');
           tileStream.appendChild(card);
           autoScroll(tileStream);
           return;
@@ -634,7 +981,7 @@
         if (env.kind === 'tool_use') {
           const name = env.payload?.name ?? '?';
           const inputStr = JSON.stringify(env.payload?.input ?? {}, null, 2);
-          const card = makeBubble(env, inputStr, 'tool_use', `🛠 ${name}`);
+          const card = makeBubble(env, inputStr, 'tool_use', name, iconForTool(name));
           tileStream.appendChild(card);
           autoScroll(tileStream);
           return;
@@ -642,7 +989,7 @@
         if (env.kind === 'tool_result') {
           const content = env.payload?.content ?? '';
           const bodyText = typeof content === 'string' ? content : JSON.stringify(content, null, 2);
-          const card = makeBubble(env, bodyText, 'tool_result', '↩ result');
+          const card = makeBubble(env, bodyText, 'tool_result', 'result');
           tileStream.appendChild(card);
           autoScroll(tileStream);
           return;
@@ -652,7 +999,8 @@
         renderSlimRow(env, `${env.kind}: ${JSON.stringify(env.payload ?? {})}`, tileStream);
       }
 
-      function makeBubble(env, bodyText, kindClass, headerLabel) {
+      // iconName is optional — if provided, prepend SVG icon to the header
+      function makeBubble(env, bodyText, kindClass, headerLabel, iconName) {
         const card = document.createElement('div');
         const safeClass = String(kindClass).replace(/[^a-z_]/gi, '_');
         card.className = `bubble kind-${safeClass}`;
@@ -660,7 +1008,14 @@
 
         const header = document.createElement('div');
         header.className = 'bubble-header';
-        header.textContent = headerLabel;
+
+        if (iconName) {
+          const icon = iconEl(iconName, 12);
+          if (icon) header.appendChild(icon);
+        }
+
+        const labelText = document.createTextNode(String(headerLabel ?? ''));
+        header.appendChild(labelText);
         card.appendChild(header);
 
         const body = document.createElement('div');
@@ -690,11 +1045,23 @@
         }
       }
 
-      function renderSlimRow(env, label, tileStream) {
+      // extraClass: optional additional CSS class to apply to the row
+      function renderSlimRow(env, label, tileStream, extraClass) {
         const row = document.createElement('div');
         const safeKind = String(env.kind).replace(/[^a-z_]/gi, '_');
-        row.className = `streamrow ${safeKind}`;
-        row.textContent = label;
+        row.className = `streamrow ${safeKind}${extraClass ? ` ${extraClass}` : ''}`;
+
+        // Add icon for result and exit rows
+        if (env.kind === 'result') {
+          const icon = iconEl('check', 11);
+          if (icon) row.appendChild(icon);
+        } else if (env.kind === 'exit') {
+          const icon = iconEl('x', 11);
+          if (icon) row.appendChild(icon);
+        }
+
+        const textNode = document.createTextNode(label);
+        row.appendChild(textNode);
         tileStream.appendChild(row);
         autoScroll(tileStream);
       }
@@ -727,6 +1094,7 @@
         currentProject = { path, name, hasDesignMd };
         sendBtn.disabled = false;
         projectChip.setAttribute('data-selected', 'true');
+        projectChip.classList.remove('empty');
         // Rebuild chip using textContent only
         while (projectChip.firstChild) projectChip.removeChild(projectChip.firstChild);
 
@@ -757,6 +1125,7 @@
       function renderChipEmpty() {
         sendBtn.disabled = true;
         projectChip.removeAttribute('data-selected');
+        projectChip.classList.add('empty');
         while (projectChip.firstChild) projectChip.removeChild(projectChip.firstChild);
 
         const iconSpan = document.createElement('span');
@@ -777,7 +1146,6 @@
         pickerSearch.value = '';
         pickerState = { view: 'top', root: null, data: null };
 
-        // Fetch roots and recents in parallel
         try {
           const [rootsRes, recentRes] = await Promise.all([
             fetch('/api/projects/roots'),
@@ -791,7 +1159,7 @@
           };
           pickerState.data = combined;
           renderTopView(combined, '');
-        } catch (err) {
+        } catch {
           renderError('Failed to load projects');
         }
 
@@ -868,9 +1236,8 @@
         const q = filter.toLowerCase();
         const { roots = [], recent = [] } = data;
 
-        // Recents section
         const filteredRecent = recent.filter(
-          (r) => !q || r.name.toLowerCase().includes(q)
+          (r) => !q || r.name.toLowerCase().includes(q),
         );
         if (filteredRecent.length > 0) {
           pickerBody.appendChild(makeSectionLabel('Recent'));
@@ -891,9 +1258,8 @@
           }
         }
 
-        // Browse section
         const filteredRoots = roots.filter(
-          (r) => !q || r.name.toLowerCase().includes(q)
+          (r) => !q || r.name.toLowerCase().includes(q),
         );
         if (filteredRoots.length > 0) {
           pickerBody.appendChild(makeSectionLabel('Browse'));
@@ -918,7 +1284,6 @@
         const q = filter.toLowerCase();
         const { root, folders = [] } = drillData;
 
-        // Back button / breadcrumb
         const drillBackBtn = document.createElement('button');
         drillBackBtn.type = 'button';
         drillBackBtn.className = 'picker-back';
@@ -939,7 +1304,7 @@
         pickerBody.appendChild(drillBackBtn);
 
         const filteredFolders = folders.filter(
-          (f) => !q || f.name.toLowerCase().includes(q)
+          (f) => !q || f.name.toLowerCase().includes(q),
         );
 
         for (const folder of filteredFolders) {
@@ -983,7 +1348,7 @@
             topData: pickerState.data,
           };
           renderDrilledView(drillData, pickerSearch.value);
-        } catch (err) {
+        } catch {
           renderError('Failed to list folders');
         }
       }
@@ -1001,14 +1366,12 @@
       // ── wire triggers ───────────────────────────────────────────────────────
       projectChip.addEventListener('click', openPicker);
 
-      // data-close elements: backdrop + ✕ button
       pickerModal.addEventListener('click', (ev) => {
         if (ev.target.closest('[data-close]')) closePicker();
       });
 
       document.addEventListener('keydown', (ev) => {
         if (ev.key !== 'Escape') return;
-        // Priority order: picker → expanded bubble → focused agent
         if (!pickerModal.classList.contains('hidden')) {
           closePicker();
           return;
@@ -1020,6 +1383,22 @@
         }
         if (focusedAgentId) {
           unfocusAgent();
+        }
+      });
+
+      // ── textarea auto-grow ───────────────────────────────────────────────────
+      promptInput.addEventListener('input', () => {
+        promptInput.style.height = 'auto';
+        promptInput.style.height = `${Math.min(promptInput.scrollHeight, 168)}px`;
+      });
+
+      // ── ⌘↵ / Ctrl↵ submits form ─────────────────────────────────────────────
+      promptInput.addEventListener('keydown', (ev) => {
+        const isMac = navigator.platform.startsWith('Mac');
+        const modifier = isMac ? ev.metaKey : ev.ctrlKey;
+        if (modifier && ev.key === 'Enter') {
+          ev.preventDefault();
+          form.requestSubmit();
         }
       });
 
@@ -1056,6 +1435,8 @@
 
       // ── initial render ──────────────────────────────────────────────────────
       renderChipEmpty();
+      renderEmptyState();
+      updateTopbar();
     </script>
   </body>
 </html>
