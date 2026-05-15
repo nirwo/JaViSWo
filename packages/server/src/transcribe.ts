@@ -45,6 +45,33 @@ async function convertToWav(inPath: string, outPath: string): Promise<boolean> {
   return r.code === 0;
 }
 
+async function transcribeWithMlx(wavPath: string, tmp: string): Promise<string | null> {
+  if (!whichSync('mlx_whisper')) return null;
+  const r = await runProcess('mlx_whisper', [
+    wavPath,
+    '--model', 'mlx-community/whisper-large-v3-turbo',
+    '--output-format', 'txt',
+    '--output-dir', tmp,
+    '--language', 'en',
+  ], { timeoutMs: 120_000 });
+  if (r.code !== 0) return null;
+  const base = wavPath.split('/').pop()!.replace(/\.[^.]+$/, '');
+  try { return readFileSync(join(tmp, base + '.txt'), 'utf-8').trim() || null; } catch { return null; }
+}
+
+async function transcribeWithWhisperCpp(wavPath: string, tmp: string): Promise<string | null> {
+  const bin = ['whisper-cli', 'whisper-cpp', 'main'].find(whichSync);
+  if (!bin) return null;
+  const r = await runProcess(bin, [
+    wavPath,
+    '--output-txt',
+    '--output-file', join(tmp, 'out'),
+    '--language', 'en',
+  ], { timeoutMs: 90_000 });
+  if (r.code !== 0) return null;
+  try { return readFileSync(join(tmp, 'out.txt'), 'utf-8').trim() || null; } catch { return null; }
+}
+
 async function transcribeWithOpenAiCli(wavPath: string, tmp: string): Promise<string | null> {
   if (!whichSync('whisper')) return null;
   const r = await runProcess('whisper', [
@@ -110,8 +137,15 @@ export async function transcribe(audioBuf: Buffer, sourceFormat: string): Promis
   }
 
   try {
-    // Try openai-whisper CLI first (confirmed installed at /opt/anaconda3/bin/whisper)
-    let text = await tryBackend('whisper-cli', () => transcribeWithOpenAiCli(usedWav, tmp));
+    // Try mlx_whisper first (Apple Silicon native, fastest), then whisper-cpp (C++),
+    // then openai-whisper Python CLI, finally OpenAI API.
+    let text = await tryBackend('mlx_whisper', () => transcribeWithMlx(usedWav, tmp));
+    if (text === null) {
+      text = await tryBackend('whisper-cpp', () => transcribeWithWhisperCpp(usedWav, tmp));
+    }
+    if (text === null) {
+      text = await tryBackend('whisper-cli', () => transcribeWithOpenAiCli(usedWav, tmp));
+    }
     if (text === null) {
       text = await tryBackend('openai-api', () => transcribeWithOpenAiApi(audioBuf));
     }
