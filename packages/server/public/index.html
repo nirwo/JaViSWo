@@ -263,30 +263,22 @@
       .agent-tile-name { font-weight: 600; color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
       .agent-tile-meta { color: var(--muted); flex-shrink: 0; }
 
-      .status-dot {
-        width: 10px; height: 10px;
-        border-radius: 50%;
-        background: var(--muted);
-        flex-shrink: 0;
-        position: relative;
-      }
-      .status-dot.running { background: var(--accent); animation: dot-pulse 1.6s ease-in-out infinite; box-shadow: 0 0 0 0 rgba(94,234,212,0.45); }
-      .status-dot.completed { background: var(--accent); }
-      .status-dot.errored { background: #fb7185; }
-
-      @keyframes dot-pulse {
-        0%, 100% { box-shadow: 0 0 0 0 rgba(94,234,212,0.45); }
-        70% { box-shadow: 0 0 0 8px rgba(94,234,212,0); }
-      }
+      /* ── HUD status indicator (replaces simple dot) ── */
+      .status-hud { display: inline-flex; flex-shrink: 0; color: var(--muted); transition: color 200ms ease; }
+      .status-hud.running { color: var(--accent); }
+      .status-hud.completed { color: var(--accent); }
+      .status-hud.errored { color: #fb7185; }
+      .status-hud.running svg { animation: arc-spin 1.6s linear infinite; }
+      @keyframes arc-spin { to { transform: rotate(360deg); } }
 
       /* Tile running glow */
-      .agent-tile:has(.status-dot.running) { animation: tile-fadein 240ms cubic-bezier(0.4, 0, 0.2, 1) both, tile-glow 2.4s ease-in-out infinite; }
+      .agent-tile:has(.status-hud.running) { animation: tile-fadein 240ms cubic-bezier(0.4, 0, 0.2, 1) both, tile-glow 2.4s ease-in-out infinite; }
       @keyframes tile-glow {
         0%, 100% { box-shadow: 0 0 0 0 rgba(94,234,212,0); }
         50% { box-shadow: 0 0 0 1px rgba(94,234,212,0.15), 0 0 24px -4px rgba(94,234,212,0.15); }
       }
 
-      /* Agent avatar monogram */
+      /* Agent avatar monogram + rotating ring frame */
       .agent-avatar {
         width: 22px; height: 22px;
         border-radius: 6px;
@@ -297,6 +289,24 @@
         font-weight: 700;
         flex-shrink: 0;
       }
+      .avatar-frame {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 30px; height: 30px;
+        flex-shrink: 0;
+      }
+      .avatar-frame::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        border: 1px dashed hsla(var(--avatar-hue, 174), 55%, 60%, 0.55);
+        animation: spin-cw 14s linear infinite;
+        pointer-events: none;
+      }
+      .avatar-frame .agent-avatar { width: 22px; height: 22px; position: relative; z-index: 2; }
 
       /* Token meter */
       .token-meter { width: 100%; height: 2px; background: rgba(94,234,212,0.08); border-top: 1px solid var(--border); flex-basis: 100%; }
@@ -332,16 +342,41 @@
       /* ── Topbar ── */
       .topbar { display: flex; align-items: center; gap: 12px; }
       .brand { display: flex; align-items: center; gap: 10px; }
+
+      /* Brand mark with counter-rotating rings */
       .brand-mark {
-        width: 28px; height: 28px;
-        border-radius: 7px;
-        background: linear-gradient(135deg, rgba(94,234,212,0.18), rgba(94,234,212,0.04));
-        border: 1px solid rgba(94,234,212,0.4);
-        color: var(--accent);
+        position: relative;
+        width: 36px; height: 36px;
         display: inline-flex; align-items: center; justify-content: center;
+        background: none; border: none;
         flex-shrink: 0;
-        box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
       }
+      .brand-mark .brand-icon {
+        font-size: 14px;
+        color: var(--accent);
+        position: relative;
+        z-index: 2;
+      }
+      .brand-mark .ring {
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        pointer-events: none;
+      }
+      .brand-mark .ring-outer {
+        border: 1px solid rgba(94,234,212,0.35);
+        border-top-color: rgba(94,234,212,0.8);
+        animation: spin-cw 12s linear infinite;
+      }
+      .brand-mark .ring-inner {
+        inset: 6px;
+        border: 1px dashed rgba(94,234,212,0.25);
+        border-bottom-color: rgba(94,234,212,0.7);
+        animation: spin-ccw 18s linear infinite;
+      }
+      @keyframes spin-cw { to { transform: rotate(360deg); } }
+      @keyframes spin-ccw { to { transform: rotate(-360deg); } }
+
       .brand-name { font-size: 14px; color: var(--text); font-weight: 600; letter-spacing: 0.3px; }
       .topbar-spacer { flex: 1; }
       .topbar-stats {
@@ -351,7 +386,24 @@
         color: var(--muted);
       }
       .topbar-stats .agent-dots { display: inline-flex; gap: 3px; }
-      .topbar-stats .agent-dots .status-dot { width: 7px; height: 7px; }
+      .topbar-stats .agent-dots .status-hud { width: 10px; height: 10px; }
+
+      /* HUD diagnostic readouts */
+      .hud-readout {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 2px 8px;
+        border: 1px solid rgba(94,234,212,0.2);
+        border-radius: 4px;
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 10px;
+        letter-spacing: 0.5px;
+      }
+      .hud-readout .hud-label { color: var(--muted); text-transform: uppercase; }
+      .hud-readout .hud-value { color: var(--accent); }
+      .hud-readout.degraded { border-color: rgba(251,191,36,0.4); }
+      .hud-readout.degraded .hud-value { color: #fbbf24; }
+      .hud-readout.lost { border-color: rgba(251,113,133,0.4); }
+      .hud-readout.lost .hud-value { color: #fb7185; }
       #newAgentBtn {
         display: inline-flex; align-items: center; gap: 6px;
         padding: 6px 12px; min-height: 30px;
@@ -380,26 +432,56 @@
         grid-column: 1 / -1;
         grid-row: 1 / -1;
       }
+      /* Tron-style perspective grid */
       .empty-state::before {
         content: "";
         position: absolute;
+        inset: -20% 0 0 0;
+        background-image:
+          linear-gradient(90deg, transparent 49.5%, rgba(94,234,212,0.06) 50%, transparent 50.5%),
+          repeating-linear-gradient(0deg, rgba(94,234,212,0.05) 0 1px, transparent 1px 80px);
+        background-size: 80px 100%, 100% 100%;
+        transform: perspective(600px) rotateX(60deg);
+        transform-origin: center 100%;
+        pointer-events: none;
+        animation: grid-pull 20s linear infinite;
+      }
+      @keyframes grid-pull { from { background-position: 0 0; } to { background-position: 0 80px; } }
+
+      .empty-state-content { position: relative; text-align: center; max-width: 360px; padding: 24px; }
+
+      /* Rotating ring container for empty state icon */
+      .empty-state-ring {
+        position: relative;
+        width: 96px; height: 96px;
+        margin: 0 auto 16px;
+        display: inline-flex; align-items: center; justify-content: center;
+      }
+      .empty-state-ring .ring {
+        position: absolute;
         inset: 0;
-        background-image: radial-gradient(rgba(94,234,212,0.08) 1px, transparent 1px);
-        background-size: 24px 24px;
-        animation: grid-drift 24s linear infinite;
+        border-radius: 50%;
         pointer-events: none;
       }
-      @keyframes grid-drift { to { background-position: 24px 24px; } }
-      .empty-state-content { position: relative; text-align: center; max-width: 360px; padding: 24px; }
-      .empty-state-mark {
-        width: 64px; height: 64px;
-        border-radius: 16px;
-        background: linear-gradient(135deg, rgba(94,234,212,0.18), rgba(94,234,212,0.04));
-        color: var(--accent);
-        display: inline-flex; align-items: center; justify-content: center;
-        margin: 0 auto 16px;
-        filter: drop-shadow(0 0 24px rgba(94,234,212,0.3));
+      .empty-state-ring .ring-outer {
+        border: 1px solid rgba(94,234,212,0.4);
+        border-top-color: rgba(94,234,212,0.9);
+        animation: spin-cw 8s linear infinite;
       }
+      .empty-state-ring .ring-inner {
+        inset: 14px;
+        border: 1px dashed rgba(94,234,212,0.3);
+        border-left-color: rgba(94,234,212,0.8);
+        animation: spin-ccw 12s linear infinite;
+      }
+      .empty-state-ring .empty-state-mark {
+        position: relative;
+        z-index: 2;
+        font-size: 32px;
+        color: var(--accent);
+        filter: drop-shadow(0 0 12px rgba(94,234,212,0.5));
+      }
+
       .empty-state-title { font-size: 16px; color: var(--text); margin: 0 0 6px; font-weight: 600; }
       .empty-state-sub { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 0; }
       .empty-state-sub kbd {
@@ -408,6 +490,102 @@
         font-family: 'JetBrains Mono', ui-monospace, monospace;
         font-size: 10px; color: var(--text); background: var(--bg);
       }
+      /* Typing cursor effect */
+      .typing { color: var(--accent); font-family: 'JetBrains Mono', ui-monospace, monospace; letter-spacing: 1.5px; }
+      .typing::after { content: "▌"; animation: blink 1s steps(2) infinite; color: var(--accent); margin-left: 2px; }
+      @keyframes blink { 50% { opacity: 0; } }
+
+      /* ── Tile corner brackets ── */
+      .agent-tile::before,
+      .agent-tile::after {
+        content: "";
+        position: absolute;
+        width: 14px;
+        height: 14px;
+        pointer-events: none;
+        border-color: hsla(var(--tile-hue, 174), 60%, 70%, 0.6);
+        border-style: solid;
+        border-width: 0;
+        z-index: 3;
+      }
+      .agent-tile::before { top: 4px; left: 4px; border-top-width: 1.5px; border-left-width: 1.5px; }
+      .agent-tile::after  { top: 4px; right: 4px; border-top-width: 1.5px; border-right-width: 1.5px; }
+      .tile-corners-bottom {
+        position: absolute;
+        left: 0; right: 0; bottom: 0; height: 0;
+        pointer-events: none;
+      }
+      .tile-corners-bottom::before,
+      .tile-corners-bottom::after {
+        content: "";
+        position: absolute;
+        bottom: 4px;
+        width: 14px; height: 14px;
+        border-color: hsla(var(--tile-hue, 174), 60%, 70%, 0.6);
+        border-style: solid;
+        border-width: 0;
+        z-index: 3;
+      }
+      .tile-corners-bottom::before { left: 4px; border-bottom-width: 1.5px; border-left-width: 1.5px; }
+      .tile-corners-bottom::after  { right: 4px; border-bottom-width: 1.5px; border-right-width: 1.5px; }
+      /* Hide corner brackets on focused tile (they distract from the content view) */
+      #stage[data-focused] .agent-tile.focused::before,
+      #stage[data-focused] .agent-tile.focused::after,
+      #stage[data-focused] .agent-tile.focused .tile-corners-bottom::before,
+      #stage[data-focused] .agent-tile.focused .tile-corners-bottom::after {
+        opacity: 0;
+        transition: opacity 200ms ease;
+      }
+
+      /* ── Scan-line sweep on running tiles ── */
+      .tile-scan {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        overflow: hidden;
+        border-radius: inherit;
+        opacity: 0;
+        z-index: 1;
+      }
+      .agent-tile:has(.status-hud.running) .tile-scan { opacity: 1; }
+      .tile-scan::before {
+        content: "";
+        position: absolute;
+        left: 0; right: 0;
+        top: -20%;
+        height: 30%;
+        background: linear-gradient(180deg, transparent 0%, rgba(94,234,212,0.06) 50%, transparent 100%);
+        animation: scan-sweep 3.6s linear infinite;
+      }
+      @keyframes scan-sweep {
+        0% { transform: translateY(0); }
+        100% { transform: translateY(450%); }
+      }
+
+      /* ── Boot sequence ── */
+      body.booting > * { opacity: 0; transition: opacity 320ms ease; }
+      body.booting::before {
+        content: "";
+        position: fixed; inset: 0;
+        background: var(--bg);
+        z-index: 1000;
+        pointer-events: none;
+        animation: boot-fade 800ms ease forwards;
+      }
+      body.booting::after {
+        content: "INITIALIZING COCKPIT";
+        position: fixed; inset: 0;
+        display: flex; align-items: center; justify-content: center;
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 12px; letter-spacing: 4px;
+        color: var(--accent);
+        z-index: 1001;
+        pointer-events: none;
+        animation: boot-text 800ms ease forwards;
+        text-shadow: 0 0 8px rgba(94,234,212,0.5);
+      }
+      @keyframes boot-fade { 0% { opacity: 1; } 80% { opacity: 1; } 100% { opacity: 0; } }
+      @keyframes boot-text { 0% { opacity: 0; } 30% { opacity: 1; } 80% { opacity: 1; } 100% { opacity: 0; } }
 
       /* ── Command bar / form polish ── */
       form#spawn { padding: 12px 16px; gap: 8px; flex-direction: column; align-items: stretch; border-bottom: 1px solid var(--border); background: var(--panel); }
@@ -431,6 +609,9 @@
       #sendBtn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(94,234,212,0.25); }
       #sendBtn:active:not(:disabled) { transform: translateY(0); }
       #sendBtn:disabled { background: rgba(94,234,212,0.18); color: rgba(212,216,224,0.5); cursor: not-allowed; box-shadow: none; }
+      #sendBtn.transmitting .icon { animation: spin-cw 1.4s linear infinite; }
+      #sendBtn.transmitting .send-label { font-size: 0; }
+      #sendBtn.transmitting .send-label::after { content: "TX…"; font-size: 12px; letter-spacing: 1.5px; }
 
       /* ── Card append animation ── */
       .bubble, .streamrow { animation: card-in 240ms cubic-bezier(0.16, 1, 0.3, 1) both; }
@@ -445,6 +626,7 @@
         .topbar-stats { font-size: 10px; gap: 6px; }
         .brand-name { font-size: 12px; }
         #newAgentBtn .btn-label { display: none; }
+        .hud-readout { display: none; }
       }
     </style>
   </head>
@@ -452,7 +634,11 @@
     <header>
       <div class="topbar">
         <div class="brand">
-          <div class="brand-mark" aria-hidden="true" id="headerBrandMark"></div>
+          <span class="brand-mark" aria-hidden="true">
+            <span class="ring ring-outer"></span>
+            <span class="ring ring-inner"></span>
+            <span class="brand-icon" id="headerBrandMark">⌘</span>
+          </span>
           <span class="brand-name">Cockpit</span>
         </div>
         <div class="topbar-spacer"></div>
@@ -464,6 +650,12 @@
           <span>·</span>
           <span id="totalCost">$0.0000</span>
         </div>
+        <span class="hud-readout" id="netReadout" aria-label="Network latency">
+          <span class="hud-label">NET</span><span class="hud-value" id="netLatency">…ms</span>
+        </span>
+        <span class="hud-readout" id="wsReadout" aria-label="WebSocket status">
+          <span class="hud-label">WS</span><span class="hud-value" id="wsStatus">link</span>
+        </span>
         <button type="button" id="newAgentBtn" aria-label="New agent">
           <span id="newAgentBtnIcon"></span>
           <span class="btn-label">+ Agent</span>
@@ -481,7 +673,9 @@
         ></button>
         <div class="cmd-row">
           <textarea id="prompt" class="cmd-textarea" placeholder="Type a prompt… ⌘↵ to send" required></textarea>
-          <button type="submit" id="sendBtn" disabled></button>
+          <button type="submit" id="sendBtn" disabled>
+            <!-- icon and send-label injected by JS -->
+          </button>
         </div>
       </form>
 
@@ -577,18 +771,17 @@
 
       // ── Topbar icon + send button setup ─────────────────────────────────────
       (function initStaticIcons() {
-        const brandMark = document.getElementById('headerBrandMark');
-        const cmdIcon = iconEl('cmd', 16);
-        if (cmdIcon) brandMark.appendChild(cmdIcon);
-
+        // Brand mark now uses inline ⌘ Unicode — already in markup, no JS needed.
         const newAgentBtnIcon = document.getElementById('newAgentBtnIcon');
-        // Use a simple + text since send icon doesn't fit "new agent" semantically
         newAgentBtnIcon.textContent = '+';
 
-        // Send button: icon + label
+        // Send button: icon + label with .send-label class for transmitting state
+        // Clear placeholder comment nodes first
+        while (sendBtn.firstChild) sendBtn.removeChild(sendBtn.firstChild);
         const sendIcon = iconEl('send', 14);
         if (sendIcon) sendBtn.appendChild(sendIcon);
         const sendLabel = document.createElement('span');
+        sendLabel.className = 'send-label';
         sendLabel.textContent = 'Send';
         sendBtn.appendChild(sendLabel);
       })();
@@ -601,6 +794,10 @@
       const agentTextCard = new Map(); // agentId -> current assistant text card element (or null)
       const pendingPrompts = new Map(); // agentId -> prompt slug (set before first envelope arrives)
       let focusedAgentId = null;
+
+      // ── HUD ping/pong state ───────────────────────────────────────────────
+      let lastPongTs = Date.now();
+      let netLatencyMs = null;
 
       // ── topbar aggregate update ───────────────────────────────────────────
       function updateTopbar() {
@@ -629,12 +826,90 @@
         // Rebuild agent dots
         while (agentDotsEl.firstChild) agentDotsEl.removeChild(agentDotsEl.firstChild);
         for (const [id, entry] of agents) {
-          const dot = document.createElement('span');
-          dot.className = `status-dot ${entry.status ?? 'running'}`;
-          dot.setAttribute('aria-label', entry.status ?? 'running');
-          dot.title = entry.name ?? id;
-          agentDotsEl.appendChild(dot);
+          const miniDot = makeStatusIndicator(entry.status ?? 'running');
+          miniDot.title = entry.name ?? id;
+          agentDotsEl.appendChild(miniDot);
         }
+      }
+
+      // ── HUD readout helpers ───────────────────────────────────────────────
+      function updateHudReadouts() {
+        const netEl = document.getElementById('netLatency');
+        const wsEl = document.getElementById('wsStatus');
+        const wsReadout = document.getElementById('wsReadout');
+        if (!netEl || !wsEl || !wsReadout) return;
+        if (netLatencyMs == null) {
+          netEl.textContent = '…ms';
+        } else {
+          netEl.textContent = `${netLatencyMs}ms`;
+        }
+        const sinceLastPong = Date.now() - lastPongTs;
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+          wsEl.textContent = 'lost';
+          wsReadout.classList.remove('degraded');
+          wsReadout.classList.add('lost');
+        } else if (sinceLastPong > 15000) {
+          wsEl.textContent = 'degraded';
+          wsReadout.classList.remove('lost');
+          wsReadout.classList.add('degraded');
+        } else {
+          wsEl.textContent = 'stable';
+          wsReadout.classList.remove('lost', 'degraded');
+        }
+      }
+      setInterval(updateHudReadouts, 1000);
+
+      function sendPing() {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        const ts = Date.now();
+        ws.send(JSON.stringify({ type: 'ping', ts }));
+      }
+      setInterval(sendPing, 5000);
+
+      // ── makeStatusIndicator — SVG ring + spinning arc + center dot ────────
+      function makeStatusIndicator(state) {
+        const wrap = document.createElement('span');
+        wrap.className = `status-hud ${state}`;
+        wrap.setAttribute('aria-label', state);
+        const NS = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(NS, 'svg');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('width', '14');
+        svg.setAttribute('height', '14');
+        // Outer ring (dimmed)
+        const outer = document.createElementNS(NS, 'circle');
+        outer.setAttribute('cx', '12'); outer.setAttribute('cy', '12'); outer.setAttribute('r', '10');
+        outer.setAttribute('fill', 'none'); outer.setAttribute('stroke', 'currentColor');
+        outer.setAttribute('stroke-width', '1'); outer.setAttribute('opacity', '0.3');
+        svg.appendChild(outer);
+        // Spinning arc
+        const arc = document.createElementNS(NS, 'circle');
+        arc.setAttribute('cx', '12'); arc.setAttribute('cy', '12'); arc.setAttribute('r', '10');
+        arc.setAttribute('fill', 'none'); arc.setAttribute('stroke', 'currentColor');
+        arc.setAttribute('stroke-width', '2');
+        arc.setAttribute('stroke-dasharray', '14 100');
+        arc.setAttribute('stroke-linecap', 'round');
+        svg.appendChild(arc);
+        // Center dot
+        const dot = document.createElementNS(NS, 'circle');
+        dot.setAttribute('cx', '12'); dot.setAttribute('cy', '12'); dot.setAttribute('r', '3');
+        dot.setAttribute('fill', 'currentColor');
+        svg.appendChild(dot);
+        wrap.appendChild(svg);
+        return wrap;
+      }
+
+      // ── typeOut — typing effect for empty state subtitle ──────────────────
+      function typeOut(el, text, msPerChar) {
+        const charMs = msPerChar ?? 40;
+        let i = 0;
+        el.textContent = '';
+        const tick = () => {
+          if (i >= text.length) return;
+          el.textContent += text[i++];
+          setTimeout(tick, charMs);
+        };
+        tick();
       }
 
       // ── empty state management ────────────────────────────────────────────
@@ -646,11 +921,23 @@
         const content = document.createElement('div');
         content.className = 'empty-state-content';
 
-        const mark = document.createElement('div');
+        // Rotating ring container with ⌘ glyph
+        const ring = document.createElement('div');
+        ring.className = 'empty-state-ring';
+        const outerRing = document.createElement('span');
+        outerRing.className = 'ring ring-outer';
+        outerRing.setAttribute('aria-hidden', 'true');
+        const innerRing = document.createElement('span');
+        innerRing.className = 'ring ring-inner';
+        innerRing.setAttribute('aria-hidden', 'true');
+        const mark = document.createElement('span');
         mark.className = 'empty-state-mark';
-        const markIcon = iconEl('cmd', 36);
-        if (markIcon) mark.appendChild(markIcon);
-        content.appendChild(mark);
+        mark.setAttribute('aria-hidden', 'true');
+        mark.textContent = '⌘';
+        ring.appendChild(outerRing);
+        ring.appendChild(innerRing);
+        ring.appendChild(mark);
+        content.appendChild(ring);
 
         const title = document.createElement('h2');
         title.className = 'empty-state-title';
@@ -659,15 +946,21 @@
 
         const sub = document.createElement('p');
         sub.className = 'empty-state-sub';
-        sub.appendChild(document.createTextNode('Pick a project, type a prompt, hit '));
+        // Typing element for "INITIALIZING"
+        const typing = document.createElement('span');
+        typing.className = 'typing';
+        sub.appendChild(typing);
+        sub.appendChild(document.createTextNode(' · pick a project, type a prompt, hit '));
         const kbd = document.createElement('kbd');
         kbd.textContent = '⌘↵';
         sub.appendChild(kbd);
-        sub.appendChild(document.createTextNode(' Send'));
         content.appendChild(sub);
 
         es.appendChild(content);
         stage.appendChild(es);
+
+        // Kick off the typing animation
+        typeOut(typing, 'INITIALIZING');
       }
 
       function removeEmptyState() {
@@ -693,17 +986,20 @@
         const tileHeader = document.createElement('header');
         tileHeader.className = 'agent-tile-header';
 
-        // Avatar monogram
+        // Avatar monogram wrapped in a rotating-ring frame
         const avatar = document.createElement('span');
         avatar.className = 'agent-avatar';
         avatar.style.background = `hsl(${hue}, 55%, 28%)`;
         avatar.style.color = `hsl(${hue}, 65%, 75%)`;
         const promptSlug = pendingPrompts.get(agentId) ?? agentId.slice(4);
         avatar.textContent = agentMonogram(promptSlug);
+        const avatarFrame = document.createElement('span');
+        avatarFrame.className = 'avatar-frame';
+        avatarFrame.style.setProperty('--avatar-hue', String(hue));
+        avatarFrame.setAttribute('aria-hidden', 'true');
+        avatarFrame.appendChild(avatar);
 
-        const dot = document.createElement('span');
-        dot.className = 'status-dot running';
-        dot.setAttribute('aria-label', 'running');
+        const dot = makeStatusIndicator('running');
 
         const nameEl = document.createElement('span');
         nameEl.className = 'agent-tile-name';
@@ -720,7 +1016,7 @@
         meterFill.className = 'token-meter-fill';
         meter.appendChild(meterFill);
 
-        tileHeader.append(avatar, dot, nameEl, metaEl, meter);
+        tileHeader.append(avatarFrame, dot, nameEl, metaEl, meter);
 
         const streamEl = document.createElement('div');
         streamEl.className = 'agent-tile-stream';
@@ -729,7 +1025,17 @@
         hint.className = 'agent-tile-footer-hint';
         hint.textContent = 'tap to focus';
 
-        tile.append(tileHeader, streamEl, hint);
+        // Scan-line sweep overlay (visible only when running)
+        const scanLine = document.createElement('span');
+        scanLine.className = 'tile-scan';
+        scanLine.setAttribute('aria-hidden', 'true');
+
+        // Bottom corner brackets (top corners handled by ::before/::after on the tile)
+        const cornersBottom = document.createElement('span');
+        cornersBottom.className = 'tile-corners-bottom';
+        cornersBottom.setAttribute('aria-hidden', 'true');
+
+        tile.append(tileHeader, streamEl, hint, scanLine, cornersBottom);
 
         tile.addEventListener('click', (ev) => {
           if (ev.target.closest('.bubble')) return;
@@ -849,12 +1155,30 @@
       let ws;
       function connect() {
         ws = new WebSocket(wsUrl);
-        ws.onopen = () => appendSystem('WS connected');
-        ws.onclose = () => { appendSystem('WS closed, retry in 2s'); setTimeout(connect, 2000); };
-        ws.onerror = () => appendSystemErr('WS error');
+        ws.onopen = () => {
+          appendSystem('WS connected');
+          updateHudReadouts();
+          sendPing();
+        };
+        ws.onclose = () => {
+          appendSystem('WS closed, retry in 2s');
+          updateHudReadouts();
+          setTimeout(connect, 2000);
+        };
+        ws.onerror = () => {
+          appendSystemErr('WS error');
+          updateHudReadouts();
+        };
         ws.onmessage = (ev) => {
           let env;
           try { env = JSON.parse(ev.data); } catch { return; }
+          // Handle pong — update latency readout and return (not a stream envelope)
+          if (env && env.type === 'pong' && typeof env.ts === 'number') {
+            netLatencyMs = Date.now() - env.ts;
+            lastPongTs = Date.now();
+            updateHudReadouts();
+            return;
+          }
           renderEnvelope(env);
         };
       }
@@ -906,9 +1230,8 @@
           // Update tile header metadata
           const metaEl = entry.tile.querySelector('.agent-tile-meta');
           metaEl.textContent = `${totalTokens} tk · $${cost.toFixed(3)}`;
-          const dot = entry.tile.querySelector('.status-dot');
-          dot.className = 'status-dot completed';
-          dot.setAttribute('aria-label', 'completed');
+          const dot = entry.tile.querySelector('.status-hud');
+          if (dot) { dot.className = 'status-hud completed'; dot.setAttribute('aria-label', 'completed'); }
           // Update token meter (cost / $5 budget)
           const MAX_BUDGET = 5;
           const fill = entry.tile.querySelector('.token-meter-fill');
@@ -924,9 +1247,8 @@
           const code = env.payload?.code ?? 0;
           renderSlimRow(env, `exit ${code}`, tileStream, code !== 0 ? 'exit-error' : null);
           if (code !== 0) {
-            const dot = entry.tile.querySelector('.status-dot');
-            dot.className = 'status-dot errored';
-            dot.setAttribute('aria-label', 'errored');
+            const dot = entry.tile.querySelector('.status-hud');
+            if (dot) { dot.className = 'status-hud errored'; dot.setAttribute('aria-label', 'errored'); }
             const metaEl = entry.tile.querySelector('.agent-tile-meta');
             metaEl.textContent = `exit ${code}`;
             entry.status = 'errored';
@@ -1407,6 +1729,7 @@
         ev.preventDefault();
         if (!currentProject) return;
         sendBtn.disabled = true;
+        sendBtn.classList.add('transmitting');
         const projectPath = currentProject.path;
         const prompt = promptInput.value.trim();
         const slug = prompt.slice(0, 30).trim() + (prompt.length > 30 ? '…' : '');
@@ -1429,9 +1752,17 @@
             appendSystemErr(`WS not open (state=${ws.readyState}); subscription lost — reconnect and retry`);
           }
         } finally {
+          sendBtn.classList.remove('transmitting');
           sendBtn.disabled = false;
         }
       });
+
+      // ── boot sequence — 800ms intro ────────────────────────────────────────
+      document.body.classList.add('booting');
+      setTimeout(() => {
+        document.body.classList.remove('booting');
+        // The CSS transition on `body.booting > *` restores opacity when class is removed
+      }, 800);
 
       // ── initial render ──────────────────────────────────────────────────────
       renderChipEmpty();

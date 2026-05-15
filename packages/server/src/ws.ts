@@ -29,6 +29,19 @@ export function attachWebSocket(httpServer: HttpServer, registry: AgentRegistry)
       } catch {
         return;
       }
+      // Ping/pong — echo ts back so client can compute roundtrip latency.
+      if (
+        payload &&
+        typeof payload === 'object' &&
+        'type' in payload &&
+        (payload as { type: unknown }).type === 'ping'
+      ) {
+        const ts = (payload as { ts?: unknown }).ts;
+        if (typeof ts === 'number') {
+          ws.send(JSON.stringify({ type: 'pong', ts }));
+        }
+        return;
+      }
       const parsed = ResumeRequestSchema.safeParse(payload);
       if (!parsed.success) return;
       const { agentId, sinceSeq } = parsed.data.resume;
