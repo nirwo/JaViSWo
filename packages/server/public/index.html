@@ -18,7 +18,8 @@
       header { padding: 12px 16px; background: var(--panel); border-bottom: 1px solid var(--border); }
       h1 { font-size: 14px; margin: 0; color: var(--accent); }
       main { display: grid; grid-template-rows: auto 1fr; height: calc(100vh - 50px); }
-      form { display: flex; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+      form { display: flex; flex-direction: column; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+      .form-row { display: flex; gap: 8px; }
       input, textarea, button { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; }
       textarea { flex: 1; resize: none; min-height: 60px; }
       button { background: var(--accent); color: var(--bg); border: none; cursor: pointer; font-weight: 600; }
@@ -32,26 +33,187 @@
       .tool_use { color: #fbbf24; }
       .stderr { color: #fb7185; }
       .exit, .result { color: var(--muted); font-style: italic; }
+
+      /* ── chip ── */
+      .chip {
+        width: 100%;
+        text-align: left;
+        padding: 10px 14px;
+        min-height: 44px;
+        background: var(--bg);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+      }
+      .chip:hover, .chip:focus { border-color: var(--accent); outline: none; }
+      .chip[data-selected="true"] { border-color: var(--accent); }
+      .chip .chip-icon { margin-right: 8px; }
+      .chip .chip-name { font-weight: 600; }
+      .chip .chip-meta { color: var(--muted); margin-left: 8px; font-size: 11px; }
+      .chip .chip-arrow { margin-left: auto; color: var(--muted); }
+
+      /* ── modal ── */
+      .modal.hidden { display: none; }
+      .modal {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+      }
+      .modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.6); }
+      .modal-panel {
+        position: relative;
+        width: 100%;
+        max-width: 480px;
+        max-height: 80vh;
+        display: flex;
+        flex-direction: column;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        overflow: hidden;
+      }
+      .modal-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 14px 18px;
+        border-bottom: 1px solid var(--border);
+      }
+      .modal-header h2 { margin: 0; font-size: 14px; color: var(--accent); }
+      .modal-close {
+        background: transparent;
+        border: none;
+        color: var(--muted);
+        cursor: pointer;
+        font-size: 18px;
+        padding: 4px 8px;
+        min-width: 44px;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .modal-close:hover, .modal-close:focus { color: var(--text); outline: none; }
+      .modal-search { padding: 12px 18px; border-bottom: 1px solid var(--border); }
+      .modal-search input {
+        width: 100%;
+        padding: 8px 12px;
+        min-height: 40px;
+        background: var(--bg);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+      }
+      .modal-search input:focus { border-color: var(--accent); outline: none; }
+      .modal-body { overflow: auto; padding: 8px 0; flex: 1; }
+
+      /* ── picker rows ── */
+      .picker-section-label {
+        padding: 12px 18px 4px;
+        font-size: 10px;
+        text-transform: uppercase;
+        color: var(--muted);
+        letter-spacing: 0.5px;
+      }
+      .picker-row {
+        display: flex;
+        align-items: center;
+        padding: 12px 18px;
+        min-height: 44px;
+        cursor: pointer;
+        border: none;
+        background: transparent;
+        width: 100%;
+        text-align: left;
+        color: var(--text);
+        font: inherit;
+      }
+      .picker-row:hover, .picker-row:focus { background: rgba(94,234,212,0.08); outline: none; }
+      .picker-row .picker-icon { margin-right: 10px; font-size: 14px; }
+      .picker-row .picker-name { flex: 1; }
+      .picker-row .picker-meta { color: var(--muted); font-size: 11px; margin-left: 8px; }
+      .picker-row .picker-badge { margin-left: 8px; }
+      .picker-row .picker-arrow { color: var(--muted); margin-left: 8px; }
+      .picker-back {
+        padding: 10px 18px;
+        font-size: 12px;
+        color: var(--muted);
+        cursor: pointer;
+        background: transparent;
+        border: none;
+        border-bottom: 1px solid var(--border);
+        width: 100%;
+        text-align: left;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        font: inherit;
+      }
+      .picker-back:hover, .picker-back:focus { color: var(--text); outline: none; }
+      .picker-back .picker-back-arrow { margin-right: 8px; }
+
+      @media (max-width: 479px) {
+        .modal { padding: 0; }
+        .modal-panel { max-width: 100%; max-height: 100vh; border-radius: 0; height: 100vh; }
+      }
     </style>
   </head>
   <body>
     <header><h1>⌘ Cockpit · M1</h1></header>
     <main>
       <form id="spawn">
-        <input id="project" placeholder="/abs/path/to/project" required style="flex: 1;" />
-        <textarea id="prompt" placeholder="Prompt for the agent…" required></textarea>
-        <button type="submit">Send</button>
+        <button
+          type="button"
+          id="projectChip"
+          class="chip"
+          aria-haspopup="dialog"
+          aria-controls="pickerModal"
+        ></button>
+        <div class="form-row">
+          <textarea id="prompt" placeholder="Prompt for the agent…" required></textarea>
+          <button type="submit" id="sendBtn" disabled>Send</button>
+        </div>
       </form>
       <div id="stream"></div>
+
+      <!-- Folder-picker modal — populated entirely by JS via createElement + textContent -->
+      <div id="pickerModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="pickerTitle">
+        <div class="modal-backdrop" data-close></div>
+        <div class="modal-panel">
+          <header class="modal-header">
+            <h2 id="pickerTitle">Pick a project</h2>
+            <button type="button" class="modal-close" data-close aria-label="Close picker">✕</button>
+          </header>
+          <div class="modal-search">
+            <input type="search" id="pickerSearch" placeholder="filter…" autocomplete="off" />
+          </div>
+          <div id="pickerBody" class="modal-body"></div>
+        </div>
+      </div>
     </main>
     <script>
       const wsUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
       const stream = document.getElementById('stream');
       const form = document.getElementById('spawn');
-      const projectInput = document.getElementById('project');
       const promptInput = document.getElementById('prompt');
-      const sendBtn = form.querySelector('button');
+      const sendBtn = document.getElementById('sendBtn');
+      const projectChip = document.getElementById('projectChip');
+      const pickerModal = document.getElementById('pickerModal');
+      const pickerSearch = document.getElementById('pickerSearch');
+      const pickerBody = document.getElementById('pickerBody');
 
+      // ── module-level state ──────────────────────────────────────────────────
+      let currentProject = null; // { path, name, hasDesignMd }
+      let pickerState = { view: 'top', root: null, data: null };
+
+      // ── websocket ───────────────────────────────────────────────────────────
       let ws;
       function connect() {
         ws = new WebSocket(wsUrl);
@@ -66,7 +228,8 @@
       }
       connect();
 
-      // Build the row with createElement + textContent — NEVER use the other DOM-write API.
+      // ── stream rendering ────────────────────────────────────────────────────
+      // Build the row with createElement + textContent — NEVER use innerHTML.
       // Agent output is fully untrusted; treating it as plain text is the only safe move.
       function append(kind, text) {
         const safeKind = String(kind).replace(/[^a-z_]/gi, '_');
@@ -97,10 +260,319 @@
         append(env.kind, text);
       }
 
+      // ── relative time ───────────────────────────────────────────────────────
+      function fmtRelative(ts) {
+        const SECOND = 1000;
+        const MINUTE = 60 * SECOND;
+        const HOUR = 60 * MINUTE;
+        const DAY = 24 * HOUR;
+        const WEEK = 7 * DAY;
+        const delta = Date.now() - ts;
+        if (delta < 60 * SECOND) return 'just now';
+        if (delta < 60 * MINUTE) return `${Math.floor(delta / MINUTE)}m ago`;
+        if (delta < 24 * HOUR) return `${Math.floor(delta / HOUR)}h ago`;
+        if (delta < WEEK) return `${Math.floor(delta / DAY)}d ago`;
+        const d = new Date(ts);
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      }
+
+      // ── chip state ──────────────────────────────────────────────────────────
+      function setSelectedProject(path, name, hasDesignMd) {
+        currentProject = { path, name, hasDesignMd };
+        sendBtn.disabled = false;
+        projectChip.setAttribute('data-selected', 'true');
+        // Rebuild chip using textContent only
+        while (projectChip.firstChild) projectChip.removeChild(projectChip.firstChild);
+
+        const iconSpan = document.createElement('span');
+        iconSpan.className = 'chip-icon';
+        iconSpan.textContent = '📁';
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'chip-name';
+        nameSpan.textContent = name;
+
+        projectChip.appendChild(iconSpan);
+        projectChip.appendChild(nameSpan);
+
+        if (hasDesignMd) {
+          const badgeSpan = document.createElement('span');
+          badgeSpan.className = 'chip-meta';
+          badgeSpan.textContent = '🎨';
+          projectChip.appendChild(badgeSpan);
+        }
+
+        const arrowSpan = document.createElement('span');
+        arrowSpan.className = 'chip-arrow';
+        arrowSpan.textContent = 'change ▾';
+        projectChip.appendChild(arrowSpan);
+      }
+
+      function renderChipEmpty() {
+        sendBtn.disabled = true;
+        projectChip.removeAttribute('data-selected');
+        while (projectChip.firstChild) projectChip.removeChild(projectChip.firstChild);
+
+        const iconSpan = document.createElement('span');
+        iconSpan.className = 'chip-icon';
+        iconSpan.textContent = '📁';
+
+        const labelSpan = document.createElement('span');
+        labelSpan.style.color = 'var(--muted)';
+        labelSpan.textContent = 'Pick a project…';
+
+        projectChip.appendChild(iconSpan);
+        projectChip.appendChild(labelSpan);
+      }
+
+      // ── modal open / close ──────────────────────────────────────────────────
+      async function openPicker() {
+        pickerModal.classList.remove('hidden');
+        pickerSearch.value = '';
+        pickerState = { view: 'top', root: null, data: null };
+
+        // Fetch roots and recents in parallel
+        try {
+          const [rootsRes, recentRes] = await Promise.all([
+            fetch('/api/projects/roots'),
+            fetch('/api/projects/recent'),
+          ]);
+          const rootsData = await rootsRes.json();
+          const recentData = await recentRes.json();
+          const combined = {
+            roots: rootsData.roots ?? [],
+            recent: recentData.recent ?? [],
+          };
+          pickerState.data = combined;
+          renderTopView(combined, '');
+        } catch (err) {
+          renderError('Failed to load projects');
+        }
+
+        pickerSearch.focus();
+      }
+
+      function closePicker() {
+        pickerModal.classList.add('hidden');
+        projectChip.focus();
+      }
+
+      // ── render helpers ──────────────────────────────────────────────────────
+      function clearBody() {
+        while (pickerBody.firstChild) pickerBody.removeChild(pickerBody.firstChild);
+      }
+
+      function makeSectionLabel(text) {
+        const div = document.createElement('div');
+        div.className = 'picker-section-label';
+        div.textContent = text;
+        return div;
+      }
+
+      function makePickerRow(icon, name, meta, badge, arrow) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'picker-row';
+
+        const iconSpan = document.createElement('span');
+        iconSpan.className = 'picker-icon';
+        iconSpan.textContent = icon;
+        btn.appendChild(iconSpan);
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'picker-name';
+        nameSpan.textContent = name;
+        btn.appendChild(nameSpan);
+
+        if (meta) {
+          const metaSpan = document.createElement('span');
+          metaSpan.className = 'picker-meta';
+          metaSpan.textContent = meta;
+          btn.appendChild(metaSpan);
+        }
+
+        if (badge) {
+          const badgeSpan = document.createElement('span');
+          badgeSpan.className = 'picker-badge';
+          badgeSpan.textContent = badge;
+          btn.appendChild(badgeSpan);
+        }
+
+        if (arrow) {
+          const arrowSpan = document.createElement('span');
+          arrowSpan.className = 'picker-arrow';
+          arrowSpan.textContent = arrow;
+          btn.appendChild(arrowSpan);
+        }
+
+        return btn;
+      }
+
+      function renderError(message) {
+        clearBody();
+        const p = document.createElement('p');
+        p.style.padding = '16px 18px';
+        p.style.color = '#fb7185';
+        p.textContent = message;
+        pickerBody.appendChild(p);
+      }
+
+      function renderTopView(data, filter) {
+        clearBody();
+        const q = filter.toLowerCase();
+        const { roots = [], recent = [] } = data;
+
+        // Recents section
+        const filteredRecent = recent.filter(
+          (r) => !q || r.name.toLowerCase().includes(q)
+        );
+        if (filteredRecent.length > 0) {
+          pickerBody.appendChild(makeSectionLabel('Recent'));
+          for (const item of filteredRecent) {
+            const row = makePickerRow(
+              '📁',
+              item.name,
+              fmtRelative(item.ts),
+              item.hasDesignMd ? '🎨' : null,
+              null,
+            );
+            row.addEventListener('click', () => {
+              setSelectedProject(item.path, item.name, item.hasDesignMd);
+              closePicker();
+              promptInput.focus();
+            });
+            pickerBody.appendChild(row);
+          }
+        }
+
+        // Browse section
+        const filteredRoots = roots.filter(
+          (r) => !q || r.name.toLowerCase().includes(q)
+        );
+        if (filteredRoots.length > 0) {
+          pickerBody.appendChild(makeSectionLabel('Browse'));
+          for (const root of filteredRoots) {
+            const row = makePickerRow('📂', root.name + '/', null, null, '→');
+            row.addEventListener('click', () => drillInto(root.path, root.name));
+            pickerBody.appendChild(row);
+          }
+        }
+
+        if (filteredRecent.length === 0 && filteredRoots.length === 0) {
+          const empty = document.createElement('p');
+          empty.style.padding = '16px 18px';
+          empty.style.color = 'var(--muted)';
+          empty.textContent = 'No results.';
+          pickerBody.appendChild(empty);
+        }
+      }
+
+      function renderDrilledView(drillData, filter) {
+        clearBody();
+        const q = filter.toLowerCase();
+        const { root, folders = [] } = drillData;
+
+        // Back button / breadcrumb
+        const backBtn = document.createElement('button');
+        backBtn.type = 'button';
+        backBtn.className = 'picker-back';
+
+        const backArrow = document.createElement('span');
+        backArrow.className = 'picker-back-arrow';
+        backArrow.textContent = '⬅';
+        backBtn.appendChild(backArrow);
+
+        const breadcrumb = document.createElement('span');
+        breadcrumb.textContent = root;
+        backBtn.appendChild(breadcrumb);
+
+        backBtn.addEventListener('click', () => {
+          pickerState = { view: 'top', root: null, data: pickerState.topData ?? pickerState.data };
+          renderTopView(pickerState.data, pickerSearch.value);
+        });
+        pickerBody.appendChild(backBtn);
+
+        const filteredFolders = folders.filter(
+          (f) => !q || f.name.toLowerCase().includes(q)
+        );
+
+        for (const folder of filteredFolders) {
+          const row = makePickerRow(
+            '📁',
+            folder.name,
+            null,
+            folder.hasDesignMd ? '🎨' : null,
+            null,
+          );
+          row.addEventListener('click', () => {
+            setSelectedProject(folder.path, folder.name, folder.hasDesignMd);
+            closePicker();
+            promptInput.focus();
+          });
+          pickerBody.appendChild(row);
+        }
+
+        if (filteredFolders.length === 0) {
+          const empty = document.createElement('p');
+          empty.style.padding = '16px 18px';
+          empty.style.color = 'var(--muted)';
+          empty.textContent = 'No matching folders.';
+          pickerBody.appendChild(empty);
+        }
+      }
+
+      async function drillInto(rootPath, rootName) {
+        try {
+          const res = await fetch(`/api/projects/list?root=${encodeURIComponent(rootPath)}`);
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            renderError(`Error ${res.status}: ${body.error ?? 'Failed to list folders'}`);
+            return;
+          }
+          const drillData = await res.json();
+          pickerState = {
+            view: 'drilled',
+            root: rootPath,
+            data: drillData,
+            topData: pickerState.data,
+          };
+          renderDrilledView(drillData, pickerSearch.value);
+        } catch (err) {
+          renderError('Failed to list folders');
+        }
+      }
+
+      // ── search filter ───────────────────────────────────────────────────────
+      pickerSearch.addEventListener('input', () => {
+        const filter = pickerSearch.value;
+        if (pickerState.view === 'top' && pickerState.data) {
+          renderTopView(pickerState.data, filter);
+        } else if (pickerState.view === 'drilled' && pickerState.data) {
+          renderDrilledView(pickerState.data, filter);
+        }
+      });
+
+      // ── wire triggers ───────────────────────────────────────────────────────
+      projectChip.addEventListener('click', openPicker);
+
+      // data-close elements: backdrop + ✕ button
+      pickerModal.addEventListener('click', (ev) => {
+        if (ev.target.closest('[data-close]')) closePicker();
+      });
+
+      document.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Escape' && !pickerModal.classList.contains('hidden')) {
+          closePicker();
+        }
+      });
+
+      // ── form submit ─────────────────────────────────────────────────────────
       form.addEventListener('submit', async (ev) => {
         ev.preventDefault();
+        if (!currentProject) return;
         sendBtn.disabled = true;
-        const projectPath = projectInput.value.trim();
+        const projectPath = currentProject.path;
         const prompt = promptInput.value.trim();
         try {
           const r = await fetch('/api/agents', {
@@ -121,6 +593,9 @@
           sendBtn.disabled = false;
         }
       });
+
+      // ── initial render ──────────────────────────────────────────────────────
+      renderChipEmpty();
     </script>
   </body>
 </html>
