@@ -571,6 +571,13 @@ const ChatThread = () => {
   const agent = currentAgentId ? agents.get(currentAgentId) : null;
   const scrollRef = React.useRef(null);
 
+  // All hooks MUST run unconditionally and in the same order on every render
+  // (React Rules of Hooks). Compute grouped messages even when there's no agent.
+  const grouped = React.useMemo(
+    () => groupMessages(agent?.messages ?? []),
+    [agent?.messages],
+  );
+
   // Auto-scroll to bottom when new messages arrive
   React.useEffect(() => {
     const el = scrollRef.current;
@@ -586,11 +593,6 @@ const ChatThread = () => {
       </div>
     );
   }
-
-  const grouped = React.useMemo(
-    () => groupMessages(agent.messages),
-    [agent.messages]
-  );
 
   return (
     <div className="chat" ref={scrollRef}>
