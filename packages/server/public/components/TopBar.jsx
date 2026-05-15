@@ -3,7 +3,7 @@
 const TopBar = () => {
   const {
     agents, currentAgentId, selectAgent, closeAgent,
-    totalTokens, totalCost, draftProject, openPicker,
+    totalTokens, totalCost, draftProject, openPicker, projectDesign,
   } = useCockpit();
 
   const list = [...agents.values()];
@@ -87,6 +87,20 @@ const TopBar = () => {
           {draftProject ? draftProject.name : 'no project'}
           <Icon name="chevron" size={10} style={{ opacity: 0.5 }}/>
         </button>
+
+        {projectDesign?.exists && (
+          <button
+            className="branch"
+            title={`DESIGN.md · ${projectDesign.colors.length} colors · ${projectDesign.typography.length} type styles`}
+            style={{ borderColor: 'rgba(167,139,250,0.4)', cursor: 'default' }}
+          >
+            <span style={{ fontSize: 12 }}>🎨</span>
+            <span>{projectDesign.name ?? 'DESIGN.md'}</span>
+            <span style={{ color: 'var(--text-mute)', fontSize: 10 }}>
+              {projectDesign.colors.length}c · {projectDesign.typography.length}t
+            </span>
+          </button>
+        )}
       </div>
 
       <div className="topbar-right">

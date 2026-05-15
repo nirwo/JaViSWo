@@ -10,6 +10,7 @@ import type { AgentSupervisor } from './supervisor.js';
 import { readTree } from './files.js';
 import { gitBranch, gitStatus } from './git.js';
 import { transcribe } from './transcribe.js';
+import { loadDesignMd } from './design-md.js';
 
 const FilesTreeQuery = z.object({
   root: z.string().min(1),
@@ -176,6 +177,13 @@ export function buildHttpApp(
     return c.json(
       status ?? { branch: null, added: 0, modified: 0, removed: 0, untracked: 0, files: [] },
     );
+  });
+
+  app.get('/api/design', (c) => {
+    const root = c.req.query('root') ?? '';
+    if (!root) return c.json({ error: { code: 'NO_ROOT' } }, 400);
+    if (!isRootAllowed(root)) return c.json({ error: { code: 'ROOT_NOT_ALLOWED' } }, 403);
+    return c.json(loadDesignMd(root));
   });
 
   app.get('/api/clients', (c) => {

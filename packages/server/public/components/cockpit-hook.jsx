@@ -57,6 +57,7 @@ function CockpitProvider({ children }) {
   // Live project data
   const [projectTree, setProjectTree] = React.useState(null);
   const [projectGit, setProjectGit] = React.useState(null);
+  const [projectDesign, setProjectDesign] = React.useState(null);
   const [clientCount, setClientCount] = React.useState(1);
 
   // TTS
@@ -88,17 +89,24 @@ function CockpitProvider({ children }) {
   const agentsRef = React.useRef(agents);
   React.useEffect(() => { agentsRef.current = agents; }, [agents]);
 
-  // Refresh project file tree + git status
+  // Refresh project file tree, git status, and DESIGN.md
   const refreshProjectData = React.useCallback(async () => {
-    if (!draftProject?.path) { setProjectTree(null); setProjectGit(null); return; }
+    if (!draftProject?.path) {
+      setProjectTree(null);
+      setProjectGit(null);
+      setProjectDesign(null);
+      return;
+    }
     const root = encodeURIComponent(draftProject.path);
     try {
-      const [treeR, gitR] = await Promise.all([
+      const [treeR, gitR, designR] = await Promise.all([
         fetch(`/api/files/tree?root=${root}&depth=3`).then(r => r.ok ? r.json() : null),
         fetch(`/api/git/status?root=${root}`).then(r => r.ok ? r.json() : null),
+        fetch(`/api/design?root=${root}`).then(r => r.ok ? r.json() : null),
       ]);
       if (treeR?.tree) setProjectTree(treeR.tree);
       if (gitR) setProjectGit(gitR);
+      if (designR) setProjectDesign(designR);
     } catch {}
   }, [draftProject]);
 
@@ -493,6 +501,7 @@ function CockpitProvider({ children }) {
     collapsedSections,
     projectTree,
     projectGit,
+    projectDesign,
     clientCount,
     ttsEnabled,
     setTts,

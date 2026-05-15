@@ -1,4 +1,4 @@
-// JaViSWo — Left rail: sessions, file tree, git status
+// JaViSWo — Left rail: sessions, file tree, git status, DESIGN.md badge
 
 const RailSection = ({ id, label, count, headExtra, children, style, ...props }) => {
   const { isCollapsed, toggleSection } = useCockpit();
@@ -73,10 +73,125 @@ const FileTreeView = ({ node, status }) => {
   return <TreeNode node={node} depth={0} statusMap={statusMap} basePath={node.path}/>;
 };
 
+const DesignMdSummary = ({ design }) => {
+  const [open, setOpen] = React.useState(false);
+  const errCount = design.lint.filter(l => l.severity === 'error').length;
+  const warnCount = design.lint.filter(l => l.severity === 'warning').length;
+  return (
+    <div style={{
+      margin: '4px 6px 8px',
+      padding: '6px 10px',
+      borderRadius: 8,
+      background: 'rgba(167,139,250,0.06)',
+      border: '1px solid rgba(167,139,250,0.2)',
+    }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          width: '100%',
+          background: 'transparent',
+          border: 'none',
+          cursor: 'pointer',
+          color: 'var(--text)',
+          font: 'inherit',
+          textAlign: 'left',
+          padding: 0,
+        }}
+      >
+        <span style={{ fontSize: 14 }}>🎨</span>
+        <span style={{ fontWeight: 600, fontSize: 12, color: 'var(--violet-200)' }}>
+          {design.name ?? 'DESIGN.md'}
+        </span>
+        <span style={{
+          marginLeft: 'auto',
+          fontFamily: 'var(--f-mono)',
+          fontSize: 10,
+          color: errCount > 0 ? 'var(--danger)' : warnCount > 0 ? 'var(--warning)' : 'var(--text-mute)',
+        }}>
+          {errCount > 0 ? `${errCount} err` : warnCount > 0 ? `${warnCount} warn` : 'ok'}
+        </span>
+        <Icon name={open ? 'chevron' : 'chevronR'} size={10} style={{ opacity: 0.5 }}/>
+      </button>
+      {open && (
+        <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--hairline)' }}>
+          {design.colors.length > 0 && (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{
+                fontSize: 9,
+                letterSpacing: '0.14em',
+                textTransform: 'uppercase',
+                color: 'var(--text-mute)',
+                marginBottom: 4,
+              }}>
+                Colors · {design.colors.length}
+              </div>
+              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                {design.colors.slice(0, 12).map(c => (
+                  <span
+                    key={c.name}
+                    title={`${c.name}: ${c.value}`}
+                    style={{
+                      width: 18,
+                      height: 18,
+                      borderRadius: 4,
+                      background: c.value,
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      boxShadow: 'inset 0 1px 1px rgba(255,255,255,0.1)',
+                      display: 'inline-block',
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+          {design.typography.length > 0 && (
+            <div style={{ marginBottom: 4 }}>
+              <div style={{
+                fontSize: 9,
+                letterSpacing: '0.14em',
+                textTransform: 'uppercase',
+                color: 'var(--text-mute)',
+                marginBottom: 4,
+              }}>
+                Type · {design.typography.length}
+              </div>
+              <div style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--text-dim)', lineHeight: 1.6 }}>
+                {design.typography.slice(0, 4).map(t => (
+                  <div key={t.name}>
+                    {t.name}: <span style={{ color: 'var(--cyan-300)' }}>{t.fontSize ?? '?'}</span>
+                    {t.fontFamily ? ` · ${t.fontFamily}` : ''}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {design.lint.filter(l => l.severity !== 'info').length > 0 && (
+            <div style={{ marginTop: 6, padding: 6, background: 'rgba(0,0,0,0.3)', borderRadius: 4 }}>
+              {design.lint.filter(l => l.severity !== 'info').map((l, i) => (
+                <div key={i} style={{
+                  fontFamily: 'var(--f-mono)',
+                  fontSize: 9,
+                  color: l.severity === 'error' ? 'var(--danger)' : 'var(--warning)',
+                  marginBottom: 2,
+                }}>
+                  {l.severity === 'error' ? '✗' : '⚠'} {l.rule}: {l.message}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const LeftRail = () => {
   const {
     agents, currentAgentId, selectAgent,
-    projectTree, projectGit, draftProject, refreshProjectData,
+    projectTree, projectGit, projectDesign, draftProject, refreshProjectData,
   } = useCockpit();
 
   const sessions = [...agents.values()].map(a => ({
@@ -146,6 +261,7 @@ const LeftRail = () => {
         style={{ flex: '1 1 auto', minHeight: 200 }}
       >
         <div className="rail-body">
+          {projectDesign?.exists && <DesignMdSummary design={projectDesign}/>}
           {!draftProject && (
             <div style={{ padding: '12px 14px', color: 'var(--text-mute)', fontSize: 11.5 }}>
               No project selected
@@ -193,4 +309,4 @@ const LeftRail = () => {
   );
 };
 
-Object.assign(window, { LeftRail, FileTreeView, TreeNode, GitCell });
+Object.assign(window, { LeftRail, FileTreeView, TreeNode, GitCell, DesignMdSummary });

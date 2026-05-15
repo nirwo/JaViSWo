@@ -1,4 +1,6 @@
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Envelope, SDKMessage } from '@cockpit/shared';
 import { NdjsonParser } from './parser.js';
 import { normalize } from './normalizer.js';
@@ -87,8 +89,18 @@ export class AgentSupervisor {
       input.model ?? DEFAULTS.model,
       '--permission-mode',
       DEFAULTS.permissionMode,
-      '--verbose',
     ];
+
+    // Inject DESIGN.md directive on first spawn only (not on resume/continue)
+    const designPath = join(input.projectPath, 'DESIGN.md');
+    if (existsSync(designPath)) {
+      args.push(
+        '--append-system-prompt',
+        'This project has a DESIGN.md at the project root. Read it before producing any visual code (HTML, JSX, CSS, SVG, Mermaid). Use the YAML frontmatter tokens exactly — do not invent colors, font families, or type sizes outside the system. After generating visual code, ensure your output references the design tokens by name where possible.',
+      );
+    }
+
+    args.push('--verbose');
 
     const child = spawn('claude', args, {
       cwd: input.projectPath,
