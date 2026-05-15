@@ -27,7 +27,9 @@ function loadRoots(): string[] {
     .split(':')
     .map((s) => s.trim())
     .filter(Boolean);
-  const defaults = ['~/AI Development', '~/Projects'];
+  // Generic defaults — the most common "where I keep code" paths. Each is
+  // included only if it actually exists on disk. Override with COCKPIT_ROOTS.
+  const defaults = ['~/code', '~/projects', '~/src', '~/dev', '~/workspace'];
   const ordered = [...fromEnv, ...defaults.filter((d) => !fromEnv.includes(d))];
   return ordered.map(expandHome).map((p) => resolve(p)).filter(isDir);
 }

@@ -55,7 +55,7 @@ All configuration is environment variables — no config file required.
 | --- | --- | --- |
 | `COCKPIT_HOST` | `0.0.0.0` | Bind address. Set to `127.0.0.1` to restrict to localhost only. |
 | `COCKPIT_PORT` | `8787` | HTTP + WebSocket port. |
-| `COCKPIT_ROOTS` | `~/AI Development:~/Projects` | Colon-separated list of folders the project picker is allowed to browse. Non-existent paths are silently dropped. |
+| `COCKPIT_ROOTS` | `~/code:~/projects:~/src:~/dev:~/workspace` | Colon-separated list of folders the project picker is allowed to browse. Non-existent paths are silently dropped — set this to whatever you actually use. |
 | `OPENAI_API_KEY` | _(unset)_ | Optional. Enables OpenAI Whisper fallback when no local transcription backend is available. |
 
 Example — restrict to one project tree and bind to Tailscale only:
