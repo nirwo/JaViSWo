@@ -10,10 +10,11 @@ const config = loadConfig();
 const registry = new AgentRegistry({ tailCap: 500 });
 
 let broadcast: (env: import('@cockpit/shared').Envelope) => void = () => {};
+let clientCount: () => number = () => 0;
 const supervisor = new AgentSupervisor(registry, (env) => broadcast(env));
 const recents = new RecentsStore(recentsPath);
 
-const app = buildHttpApp(config, registry, supervisor, recents);
+const app = buildHttpApp(config, registry, supervisor, recents, () => clientCount());
 
 const server = serve(
   { fetch: app.fetch, hostname: config.host, port: config.port },
@@ -24,3 +25,4 @@ const server = serve(
 
 const ws = attachWebSocket(server as unknown as import('node:http').Server, registry);
 broadcast = ws.broadcast;
+clientCount = ws.clientCount;

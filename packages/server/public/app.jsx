@@ -32,8 +32,8 @@ const ACCENT_PALETTES = [
 
 const App = () => {
   const [tweaks, set] = useTweaks(TWEAK_DEFAULTS);
+  const { ttsEnabled, setTts } = useCockpit();
 
-  const [voice, setVoice] = React.useState(tweaks.voiceActive);
   const [permission, setPermission] = React.useState(tweaks.permission);
 
   const initialSizes = loadSizes() ?? { left: 280, right: 360 };
@@ -58,7 +58,6 @@ const App = () => {
     root.style.setProperty("--cyan-400", a2);
   }, [tweaks]);
 
-  React.useEffect(() => setVoice(tweaks.voiceActive), [tweaks.voiceActive]);
   React.useEffect(() => setPermission(tweaks.permission), [tweaks.permission]);
 
   const bg = tweaks.background;
@@ -82,8 +81,6 @@ const App = () => {
           <LeftRail/>
           <Resizer side="left"  min={200} max={520} getCurrent={() => leftW}  onResize={setLeftW}/>
           <CenterStage
-            voice={voice}
-            onToggleVoice={() => setVoice(v => !v)}
             showPermission={permission}
             onAllow={() => setPermission(false)}
             onDeny={() => setPermission(false)}
@@ -141,9 +138,9 @@ const App = () => {
 
         <TweakSection label="States">
           <TweakToggle
-            label="Voice listening"
-            value={voice}
-            onChange={v => { setVoice(v); set("voiceActive", v); }}
+            label="Voice reply (TTS)"
+            value={ttsEnabled}
+            onChange={v => setTts(v)}
           />
           <TweakToggle
             label="Approval prompt"

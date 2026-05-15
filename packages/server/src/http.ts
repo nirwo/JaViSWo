@@ -7,6 +7,14 @@ import type { CockpitConfig } from './config.js';
 import type { AgentRegistry } from './registry.js';
 import type { RecentsStore } from './recents.js';
 import type { AgentSupervisor } from './supervisor.js';
+import { readTree } from './files.js';
+import { gitBranch, gitStatus } from './git.js';
+import { transcribe } from './transcribe.js';
+
+const FilesTreeQuery = z.object({
+  root: z.string().min(1),
+  depth: z.coerce.number().int().min(1).max(6).default(3),
+});
 
 const SpawnInputSchema = z.object({
   prompt: z.string().min(1),
@@ -25,6 +33,7 @@ export function buildHttpApp(
   registry: AgentRegistry,
   supervisor: AgentSupervisor,
   recents: RecentsStore,
+  getClientCount: () => number = () => 0,
 ): Hono {
   const app = new Hono();
 
@@ -123,6 +132,64 @@ export function buildHttpApp(
       return { path: e.path, ts: e.ts, name, hasDesignMd };
     });
     return c.json({ recent: entries });
+  });
+
+  // Helper: path traversal guard — root must be one of the configured roots or a subpath
+  function isRootAllowed(root: string): boolean {
+    return config.roots.some((r) => root === r || root.startsWith(r + '/'));
+  }
+
+  app.get('/api/files/tree', (c) => {
+    const parsed = FilesTreeQuery.safeParse({
+      root: c.req.query('root'),
+      depth: c.req.query('depth'),
+    });
+    if (!parsed.success) {
+      return c.json({ error: { code: 'VALIDATION_ERROR' } }, 400);
+    }
+    const { root, depth } = parsed.data;
+    if (!isRootAllowed(root)) {
+      return c.json({ error: { code: 'ROOT_NOT_ALLOWED' } }, 403);
+    }
+    try {
+      const tree = readTree(root, depth);
+      return c.json({ tree });
+    } catch (err) {
+      return c.json({ error: { code: 'READ_FAIL', detail: String((err as Error).message) } }, 500);
+    }
+  });
+
+  app.get('/api/git/branch', (c) => {
+    const root = c.req.query('root') ?? '';
+    if (!isRootAllowed(root)) {
+      return c.json({ error: { code: 'ROOT_NOT_ALLOWED' } }, 403);
+    }
+    return c.json({ branch: gitBranch(root) });
+  });
+
+  app.get('/api/git/status', (c) => {
+    const root = c.req.query('root') ?? '';
+    if (!isRootAllowed(root)) {
+      return c.json({ error: { code: 'ROOT_NOT_ALLOWED' } }, 403);
+    }
+    const status = gitStatus(root);
+    return c.json(
+      status ?? { branch: null, added: 0, modified: 0, removed: 0, untracked: 0, files: [] },
+    );
+  });
+
+  app.get('/api/clients', (c) => {
+    return c.json({ count: getClientCount() });
+  });
+
+  app.post('/api/voice/transcribe', async (c) => {
+    const fd = await c.req.formData().catch(() => null);
+    if (!fd) return c.json({ ok: false, error: { code: 'NO_FORM' } }, 400);
+    const file = fd.get('audio') as File | null;
+    if (!file) return c.json({ ok: false, error: { code: 'NO_AUDIO' } }, 400);
+    const bytes = Buffer.from(await file.arrayBuffer());
+    const result = await transcribe(bytes, file.type || 'audio/webm');
+    return c.json(result, result.ok ? 200 : 503);
   });
 
   app.use('/*', serveStatic({ root: config.publicDir }));

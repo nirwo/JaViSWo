@@ -66,5 +66,13 @@ export function attachWebSocket(httpServer: HttpServer, registry: AgentRegistry)
     }
   }
 
-  return { broadcast };
+  function clientCount(): number {
+    let count = 0;
+    for (const ws of subs.keys()) {
+      if (ws.readyState === WebSocket.OPEN) count++;
+    }
+    return count;
+  }
+
+  return { broadcast, clientCount };
 }

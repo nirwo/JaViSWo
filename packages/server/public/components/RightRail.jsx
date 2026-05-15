@@ -70,53 +70,79 @@ const AgentOrb = () => {
   );
 };
 
-const TASKS = [
-  { id: 1, state: "done",  text: "Read orchestrator.ts & locate queue references", sub: "3 files · 412 tokens" },
-  { id: 2, state: "done",  text: "Identify priority semantics from Task type",      sub: "0.4s" },
-  { id: 3, state: "doing", text: "Generate refactor diff & test patches",           sub: "streaming · 1.2s" },
-  { id: 4, state: "todo",  text: "Run orchestrator.test.ts & verify priority order" },
-  { id: 5, state: "todo",  text: "Update dispatch.ts caller to await ETA"           },
-  { id: 6, state: "todo",  text: "Open PR with description & rationale"             },
-];
-
 const TaskList = () => {
+  const { agents, currentAgentId } = useCockpit();
+  const a = currentAgentId ? agents.get(currentAgentId) : null;
+  const todos = a?.todos ?? [];
+  const doneCnt = todos.filter(t => t.status === 'completed').length;
+  const countLabel = todos.length ? `${doneCnt}/${todos.length}` : '—';
+
   return (
     <RailSection
       id="right-plan"
       label="Plan"
-      count="2/6"
+      count={countLabel}
       style={{ flex: '0 1 auto', maxHeight: 290 }}
     >
       <div className="rail-body" style={{ padding: '4px 6px 10px' }}>
-        {TASKS.map(t => (
-          <div key={t.id} className={`task ${t.state}`}>
-            <span className="task-check">
-              {t.state === "done" && <Icon name="check" size={10} stroke={2.5} style={{ color: 'white' }}/>}
-            </span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="task-text">{t.text}</div>
-              {t.sub && <div className="task-sub">{t.sub}</div>}
-            </div>
+        {todos.length === 0 && (
+          <div style={{ padding: '8px 12px', color: 'var(--text-mute)', fontSize: 11.5 }}>
+            No plan yet · agent hasn't created todos
           </div>
-        ))}
+        )}
+        {todos.map((t, i) => {
+          const state = t.status === 'completed' ? 'done'
+            : t.status === 'in_progress' ? 'doing'
+            : 'todo';
+          return (
+            <div key={i} className={`task ${state}`}>
+              <span className="task-check">
+                {state === 'done' && (
+                  <Icon name="check" size={10} stroke={2.5} style={{ color: 'white' }}/>
+                )}
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="task-text">{t.subject ?? t.activeForm ?? '(untitled)'}</div>
+                {t.activeForm && state === 'doing' && (
+                  <div className="task-sub">{t.activeForm}</div>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </RailSection>
   );
 };
 
 const TerminalLog = () => {
-  const lines = [
-    { t: "prompt", text: "$ pnpm test orchestrator" },
-    { t: "dim",    text: "  ↳ vitest run --reporter=verbose" },
-    { t: "ok",     text: "✓ Orchestrator › dispatches single task (12ms)" },
-    { t: "ok",     text: "✓ Orchestrator › respects priority order (8ms)" },
-    { t: "dim",    text: "↻ Orchestrator › emits queued with eta…" },
-    { t: "warn",   text: "  ⚠ deprecation: queue.push will be removed in v3" },
-    { t: "ok",     text: "✓ Orchestrator › flushes batched tasks (24ms)" },
-    { t: "",       text: "" },
-    { t: "prompt", text: "$ pnpm typecheck" },
-    { t: "ok",     text: "✓ 0 errors · 0 warnings · 1.4s" },
-  ];
+  const { agents, currentAgentId } = useCockpit();
+  const a = currentAgentId ? agents.get(currentAgentId) : null;
+
+  const lines = React.useMemo(() => {
+    if (!a) return [];
+    const out = [];
+    for (const m of a.messages.slice(-30)) {
+      if (m.kind === 'stderr') {
+        out.push({ t: 'err', text: m.text });
+      } else if (m.kind === 'exit') {
+        out.push({ t: m.code === 0 ? 'ok' : 'err', text: `exit ${m.code}` });
+      } else if (m.kind === 'tool_use') {
+        const inputStr = typeof m.input === 'string'
+          ? m.input
+          : JSON.stringify(m.input).slice(0, 80);
+        out.push({ t: 'prompt', text: `$ ${m.name}(${inputStr})` });
+      } else if (m.kind === 'result') {
+        const tkTotal = (m.usage?.input_tokens ?? 0) + (m.usage?.output_tokens ?? 0);
+        out.push({
+          t: 'ok',
+          text: `✓ ${m.durationMs}ms · ${tkTotal} tk · $${(m.cost ?? 0).toFixed(4)}`,
+        });
+      }
+    }
+    return out;
+  }, [a?.messages]);
+
   return (
     <RailSection
       id="right-stream"
@@ -127,63 +153,94 @@ const TerminalLog = () => {
         </span>
       }
       headExtra={
-        <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <span className="tag green">live</span>
-          <span className="count">tail</span>
-        </span>
+        <>
+          <span className={`tag ${a?.status === 'running' ? 'green' : ''}`}>
+            {a?.status === 'running' ? 'live' : 'idle'}
+          </span>
+          <span className="count">{lines.length}</span>
+        </>
       }
       style={{ flex: '1 1 auto', minHeight: 0 }}
     >
       <div className="terminal">
-        {lines.map((l, i) => (
-          <div key={i} className={l.t}>{l.text || "\u00A0"}</div>
-        ))}
-        <div><span className="prompt">$</span> <span className="cursor" style={{ width: 6, height: 11, verticalAlign: 'middle' }}/></div>
+        {lines.length === 0 && <div className="dim">No activity yet</div>}
+        {lines.map((l, i) => <div key={i} className={l.t}>{l.text}</div>)}
+        {a?.status === 'running' && (
+          <div>
+            <span className="prompt">$</span>{' '}
+            <span className="cursor" style={{ width: 6, height: 11, verticalAlign: 'middle' }}/>
+          </div>
+        )}
       </div>
     </RailSection>
   );
 };
 
-const HandoffCard = () => (
-  <RailSection
-    id="right-devices"
-    label="Devices"
-    headExtra={<span className="tag pink">paired</span>}
-    style={{ flex: '0 0 auto' }}
-  >
-    <div className="handoff">
-      <div className="handoff-viz">
-        <div className="device computer">
-          <div className="glyph"/>
-          <span className="lbl">workstation</span>
+const HandoffCard = () => {
+  const { latencyMs, clientCount, wsStatus } = useCockpit();
+  const lanUrl = `http://${location.host}`;
+
+  const copyLanUrl = async () => {
+    try { await navigator.clipboard.writeText(lanUrl); } catch {}
+  };
+
+  return (
+    <RailSection
+      id="right-devices"
+      label="Devices"
+      headExtra={
+        <span className={`tag ${clientCount > 1 ? 'pink' : ''}`}>
+          {clientCount} {clientCount === 1 ? 'device' : 'devices'}
+        </span>
+      }
+      style={{ flex: '0 0 auto' }}
+    >
+      <div className="handoff">
+        <div className="handoff-viz">
+          <div className="device computer">
+            <div className="glyph"/>
+            <span className="lbl">workstation</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '0 8px' }}>
+            <div className="handoff-stream"/>
+            <div className="handoff-stream" style={{ animationDelay: '0.4s' }}/>
+            <div className="handoff-stream" style={{ animationDelay: '0.8s' }}/>
+          </div>
+          <div className="device phone">
+            <div className="glyph"/>
+            <span className="lbl">iphone</span>
+          </div>
         </div>
-        <div style={{display:"flex", flexDirection:"column", gap:6, padding:"0 8px"}}>
-          <div className="handoff-stream"/>
-          <div className="handoff-stream" style={{animationDelay:"0.4s"}}/>
-          <div className="handoff-stream" style={{animationDelay:"0.8s"}}/>
+        <div className="handoff-state">
+          <span
+            className="sync"
+            style={{ color: wsStatus === 'open' ? 'var(--success)' : 'var(--danger)' }}
+          >
+            {wsStatus}
+          </span>
+          <span>latency {latencyMs ?? '…'}ms · {clientCount} {clientCount === 1 ? 'client' : 'clients'}</span>
         </div>
-        <div className="device phone">
-          <div className="glyph"/>
-          <span className="lbl">iphone 17</span>
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          fontFamily: 'var(--f-mono)', fontSize: 10.5, color: 'var(--text-dim)',
+          borderTop: '1px dashed var(--hairline)', paddingTop: 10,
+        }}>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 160 }}>
+            {lanUrl}
+          </span>
+          <button
+            className="btn ghost"
+            style={{ height: 24, fontSize: 10.5, padding: '0 8px' }}
+            onClick={copyLanUrl}
+            title="Copy LAN URL"
+          >
+            <Icon name="copy" size={10}/> copy
+          </button>
         </div>
       </div>
-      <div className="handoff-state">
-        <span className="sync">synced</span>
-        <span>latency 42ms · e2e</span>
-      </div>
-      <div style={{
-        display:"flex", justifyContent:"space-between", alignItems:"center",
-        fontFamily:"var(--f-mono)", fontSize:10.5, color:"var(--text-dim)",
-        borderTop:"1px dashed var(--hairline)", paddingTop: 10
-      }}>
-        <span>session continues on phone</span>
-        <button className="btn ghost" style={{height:24, fontSize:10.5, padding:"0 8px"}}>
-          <Icon name="refresh" size={10}/> push
-        </button>
-      </div>
-    </div>
-  </RailSection>
-);
+    </RailSection>
+  );
+};
 
 const RightRail = () => (
   <aside className="rail right hairline-l">

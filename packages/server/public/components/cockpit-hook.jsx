@@ -54,12 +54,63 @@ function CockpitProvider({ children }) {
     } catch { return new Set(); }
   });
 
+  // Live project data
+  const [projectTree, setProjectTree] = React.useState(null);
+  const [projectGit, setProjectGit] = React.useState(null);
+  const [clientCount, setClientCount] = React.useState(1);
+
+  // TTS
+  const [ttsEnabled, setTtsEnabled] = React.useState(
+    () => localStorage.getItem('cockpit:tts') === '1',
+  );
+  const setTts = React.useCallback((v) => {
+    setTtsEnabled(v);
+    try { localStorage.setItem('cockpit:tts', v ? '1' : '0'); } catch {}
+  }, []);
+
   const wsRef = React.useRef(null);
   const subscribedRef = React.useRef(new Set());
   const pingRef = React.useRef(null);
   // Keep a ref of current agents for use inside WS callbacks (avoids stale closure)
   const agentsRef = React.useRef(agents);
   React.useEffect(() => { agentsRef.current = agents; }, [agents]);
+
+  // Refresh project file tree + git status
+  const refreshProjectData = React.useCallback(async () => {
+    if (!draftProject?.path) { setProjectTree(null); setProjectGit(null); return; }
+    const root = encodeURIComponent(draftProject.path);
+    try {
+      const [treeR, gitR] = await Promise.all([
+        fetch(`/api/files/tree?root=${root}&depth=3`).then(r => r.ok ? r.json() : null),
+        fetch(`/api/git/status?root=${root}`).then(r => r.ok ? r.json() : null),
+      ]);
+      if (treeR?.tree) setProjectTree(treeR.tree);
+      if (gitR) setProjectGit(gitR);
+    } catch {}
+  }, [draftProject]);
+
+  React.useEffect(() => { refreshProjectData(); }, [draftProject?.path]);
+
+  // Refresh git status every 30s while the active agent is running
+  React.useEffect(() => {
+    const a = currentAgentId ? agents.get(currentAgentId) : null;
+    if (!a || a.status !== 'running') return;
+    const id = setInterval(refreshProjectData, 30_000);
+    return () => clearInterval(id);
+  }, [currentAgentId, agents, refreshProjectData]);
+
+  // Periodically refresh client count
+  React.useEffect(() => {
+    const tick = async () => {
+      try {
+        const r = await fetch('/api/clients');
+        if (r.ok) { const j = await r.json(); setClientCount(j.count ?? 1); }
+      } catch {}
+    };
+    tick();
+    const id = setInterval(tick, 15_000);
+    return () => clearInterval(id);
+  }, []);
 
   const updateAgent = React.useCallback((agentId, updater) => {
     setAgents(prev => {
@@ -82,6 +133,7 @@ function CockpitProvider({ children }) {
         projectPath: init.projectPath ?? '',
         status: 'idle',
         messages: [],
+        todos: [],
         tokens: 0,
         cost: 0,
         sessionId: null,
@@ -126,6 +178,16 @@ function CockpitProvider({ children }) {
           };
         }
         case 'tool_use': {
+          // Parse TodoWrite to track per-agent todos
+          if (env.payload?.name === 'TodoWrite') {
+            const todos = env.payload?.input?.todos;
+            if (Array.isArray(todos)) {
+              return {
+                ...a, status: 'running', todos,
+                messages: [...msgs, { kind: 'todo_update', turn: t, todos }],
+              };
+            }
+          }
           return {
             ...a, status: 'running',
             messages: [...msgs, {
@@ -149,6 +211,19 @@ function CockpitProvider({ children }) {
           };
         }
         case 'text': {
+          // TTS: speak final authoritative text if enabled
+          if (ttsEnabled && env.payload?.text) {
+            try {
+              const u = new SpeechSynthesisUtterance(env.payload.text);
+              u.rate = 0.95;
+              u.pitch = 0.9;
+              const voices = speechSynthesis.getVoices();
+              const v = voices.find(x => /Daniel|Alex|Bruce|Arthur|Reed/i.test(x.name))
+                ?? voices.find(x => x.lang.startsWith('en'));
+              if (v) u.voice = v;
+              speechSynthesis.speak(u);
+            } catch {}
+          }
           // Authoritative final text — replace any aggregated card
           if (last && last.kind === 'agent-text' && last.turn === t) {
             return { ...a, messages: [...msgs.slice(0, -1), { ...last, text: env.payload?.text ?? last.text }] };
@@ -372,6 +447,12 @@ function CockpitProvider({ children }) {
     totalCost,
     pickerOpen,
     collapsedSections,
+    projectTree,
+    projectGit,
+    clientCount,
+    ttsEnabled,
+    setTts,
+    refreshProjectData,
     spawn,
     continueAgent,
     selectAgent,

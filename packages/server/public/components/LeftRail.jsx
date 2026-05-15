@@ -1,32 +1,5 @@
 // JaViSWo — Left rail: sessions, file tree, git status
 
-const SESSIONS = [
-  { id: "s1", title: "Refactor auth flow into hooks", state: "doing",  meta: "2m" },
-  { id: "s2", title: "Add WebSocket reconnect logic",   state: "doing",  meta: "4m" },
-  { id: "s3", title: "Migrate Postgres schema v2",      state: "idle",   meta: "12m" },
-  { id: "s4", title: "Voice transcription pipeline",     state: "done",   meta: "1h" },
-  { id: "s5", title: "Diff viewer keyboard nav",         state: "done",   meta: "3h" },
-  { id: "s6", title: "Onboarding copy review",           state: "done",   meta: "yest" },
-];
-
-const FILE_TREE = [
-  { depth: 0, name: "javiswo/", folder: true, open: true },
-  { depth: 1, name: "src/",      folder: true, open: true },
-  { depth: 2, name: "agent/",    folder: true, open: true },
-  { depth: 3, name: "orchestrator.ts", state: "modified", added: "+42", active: true },
-  { depth: 3, name: "permissions.ts", state: "modified", added: "+8" },
-  { depth: 3, name: "stream.ts" },
-  { depth: 2, name: "ui/",       folder: true, open: true },
-  { depth: 3, name: "Composer.tsx", state: "added", added: "new" },
-  { depth: 3, name: "Orb.tsx",      state: "added", added: "new" },
-  { depth: 3, name: "Diff.tsx" },
-  { depth: 2, name: "lib/",      folder: true, open: false },
-  { depth: 1, name: "server/",   folder: true, open: false },
-  { depth: 1, name: "tests/",    folder: true, open: false },
-  { depth: 1, name: "package.json" },
-  { depth: 1, name: "tsconfig.json" },
-];
-
 const RailSection = ({ id, label, count, headExtra, children, style, ...props }) => {
   const { isCollapsed, toggleSection } = useCockpit();
   const collapsed = isCollapsed(id);
@@ -47,21 +20,87 @@ const RailSection = ({ id, label, count, headExtra, children, style, ...props })
   );
 };
 
+const GitCell = ({ label, value, className }) => (
+  <div className={`git-cell ${className}`}>
+    <span className="num">
+      {className === 'added' ? '+' : className === 'removed' ? '−' : ''}
+      {value}
+    </span>
+    <span className="lbl">{label}</span>
+  </div>
+);
+
+const TreeNode = ({ node, depth, statusMap, basePath }) => {
+  const [open, setOpen] = React.useState(depth < 2);
+  const relPath = node.path.startsWith(basePath)
+    ? node.path.slice(basePath.length).replace(/^\/+/, '')
+    : node.path;
+  const statusCode = statusMap.get(relPath);
+  const cls = statusCode?.includes('A') ? 'added'
+    : statusCode?.includes('M') ? 'modified'
+    : '';
+  const isDir = node.type === 'dir';
+  return (
+    <>
+      <div
+        className={`tree-row ${cls}`}
+        style={{ paddingLeft: 6 + depth * 12 }}
+        onClick={() => isDir && setOpen(o => !o)}
+      >
+        {isDir
+          ? <Icon name={open ? 'chevron' : 'chevronR'} size={10}/>
+          : <span style={{ width: 10 }}/>}
+        <Icon name={isDir ? 'folder' : 'file'} size={11}/>
+        <span>{node.name}{node.hasDesignMd ? ' 🎨' : ''}</span>
+        {statusCode && <span className="badge">{statusCode.trim()}</span>}
+      </div>
+      {isDir && open && node.children?.map((c) => (
+        <TreeNode
+          key={c.path}
+          node={c}
+          depth={depth + 1}
+          statusMap={statusMap}
+          basePath={basePath}
+        />
+      ))}
+    </>
+  );
+};
+
+const FileTreeView = ({ node, status }) => {
+  if (!node) return null;
+  const statusMap = new Map((status?.files ?? []).map(f => [f.path, f.code]));
+  return <TreeNode node={node} depth={0} statusMap={statusMap} basePath={node.path}/>;
+};
+
 const LeftRail = () => {
-  const [activeSession, setActiveSession] = React.useState("s1");
+  const {
+    agents, currentAgentId, selectAgent,
+    projectTree, projectGit, draftProject, refreshProjectData,
+  } = useCockpit();
+
+  const sessions = [...agents.values()].map(a => ({
+    id: a.id,
+    title: a.slug,
+    state: a.status === 'running' ? 'doing'
+      : a.status === 'errored' ? 'error'
+      : a.status === 'completed' ? 'done'
+      : 'idle',
+    meta: a.tokens > 0 ? `${a.tokens.toLocaleString()} tk` : '—',
+  }));
+
   return (
     <aside className="rail left hairline-r">
-      {/* Sessions */}
       <RailSection
         id="left-sessions"
         label="Sessions"
-        count={6}
+        count={String(sessions.length)}
         headExtra={
           <button
             className="icon-btn"
             style={{ width: 22, height: 22 }}
             title="New session"
-            onClick={e => e.stopPropagation()}
+            onClick={e => { e.stopPropagation(); selectAgent(null); }}
           >
             <Icon name="plus" size={12}/>
           </button>
@@ -69,13 +108,18 @@ const LeftRail = () => {
         style={{ flex: '0 0 auto', maxHeight: 240 }}
       >
         <div className="rail-body">
-          {SESSIONS.map(s => (
+          {sessions.length === 0 && (
+            <div style={{ padding: '12px 14px', color: 'var(--text-mute)', fontSize: 11.5 }}>
+              No sessions yet
+            </div>
+          )}
+          {sessions.map(s => (
             <div
               key={s.id}
-              className={`session ${activeSession === s.id ? "active" : ""}`}
-              onClick={() => setActiveSession(s.id)}
+              className={`session ${currentAgentId === s.id ? 'active' : ''}`}
+              onClick={() => selectAgent(s.id)}
             >
-              <span className={`session-pulse ${s.state === "doing" ? "" : s.state}`} />
+              <span className={`session-pulse ${s.state === 'doing' ? '' : s.state}`}/>
               <span className="session-title">{s.title}</span>
               <span className="session-meta">{s.meta}</span>
             </div>
@@ -83,80 +127,65 @@ const LeftRail = () => {
         </div>
       </RailSection>
 
-      {/* File tree */}
       <RailSection
         id="left-files"
         label="Workspace"
         headExtra={
-          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span className="tag">main</span>
+          <>
+            {projectGit?.branch && <span className="tag">{projectGit.branch}</span>}
             <button
               className="icon-btn"
               style={{ width: 22, height: 22 }}
-              title="Search"
-              onClick={e => e.stopPropagation()}
+              title="Refresh"
+              onClick={e => { e.stopPropagation(); refreshProjectData(); }}
             >
-              <Icon name="search" size={12}/>
+              <Icon name="refresh" size={12}/>
             </button>
-          </span>
+          </>
         }
         style={{ flex: '1 1 auto', minHeight: 200 }}
       >
         <div className="rail-body">
-          <div className="tree">
-            {FILE_TREE.map((node, i) => (
-              <div
-                key={i}
-                className={`tree-row ${node.state || ""} ${node.active ? "active" : ""}`}
-                style={{ paddingLeft: 6 + node.depth * 12 }}
-              >
-                {node.folder ? (
-                  <Icon name={node.open ? "chevron" : "chevronR"} size={10} />
-                ) : <span style={{ width: 10 }} />}
-                <Icon name={node.folder ? "folder" : "file"} size={11} />
-                <span>{node.name}</span>
-                {node.added && <span className="badge">{node.added}</span>}
-              </div>
-            ))}
-          </div>
+          {!draftProject && (
+            <div style={{ padding: '12px 14px', color: 'var(--text-mute)', fontSize: 11.5 }}>
+              No project selected
+            </div>
+          )}
+          {draftProject && !projectTree && (
+            <div style={{ padding: '12px 14px', color: 'var(--text-mute)', fontSize: 11.5 }}>
+              Loading…
+            </div>
+          )}
+          {projectTree && <FileTreeView node={projectTree} status={projectGit}/>}
         </div>
       </RailSection>
 
-      {/* Git status */}
       <RailSection
         id="left-git"
         label="Git"
         headExtra={
-          <span className="tag cyan">
-            <Icon name="branch" size={9}/>feat/orb-ui
-          </span>
+          projectGit?.branch && (
+            <span className="tag cyan">
+              <Icon name="branch" size={9}/>{projectGit.branch}
+            </span>
+          )
         }
         style={{ flex: '0 0 auto' }}
       >
         <div className="git-stat">
-          <div className="git-cell added">
-            <span className="num">+247</span>
-            <span className="lbl">added</span>
-          </div>
-          <div className="git-cell removed">
-            <span className="num">−83</span>
-            <span className="lbl">removed</span>
-          </div>
-          <div className="git-cell modified">
-            <span className="num">6</span>
-            <span className="lbl">modified</span>
-          </div>
-          <div className="git-cell untracked">
-            <span className="num">2</span>
-            <span className="lbl">new</span>
-          </div>
+          <GitCell label="added"    value={projectGit?.added    ?? 0} className="added"/>
+          <GitCell label="removed"  value={projectGit?.removed  ?? 0} className="removed"/>
+          <GitCell label="modified" value={projectGit?.modified ?? 0} className="modified"/>
+          <GitCell label="new"      value={projectGit?.untracked ?? 0} className="untracked"/>
         </div>
         <div style={{ display: 'flex', gap: 6, padding: '4px 10px 12px' }}>
-          <button className="btn" style={{ flex: 1, height: 28, fontSize: 11.5 }}>
+          <button
+            className="btn"
+            style={{ flex: 1, height: 28, fontSize: 11.5 }}
+            disabled
+            title="Commit (M2)"
+          >
             <Icon name="git" size={11}/> Commit
-          </button>
-          <button className="btn ghost" style={{ height: 28, fontSize: 11.5 }} title="Push">
-            <Icon name="upload" size={11}/>
           </button>
         </div>
       </RailSection>
@@ -164,4 +193,4 @@ const LeftRail = () => {
   );
 };
 
-Object.assign(window, { LeftRail });
+Object.assign(window, { LeftRail, FileTreeView, TreeNode, GitCell });

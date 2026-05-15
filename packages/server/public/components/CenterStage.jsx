@@ -134,6 +134,85 @@ const VoiceBar = ({ onStop, transcript }) => (
   </div>
 );
 
+const SimpleDiffCard = ({ name, input, status }) => {
+  const file = input.file_path ?? input.path ?? '?';
+  const filename = String(file).split('/').slice(-2).join('/');
+  let oldText = '';
+  let newText = '';
+  let edits = [];
+
+  if (name === 'Edit') {
+    oldText = input.old_string ?? '';
+    newText = input.new_string ?? '';
+  } else if (name === 'Write') {
+    newText = input.content ?? '';
+  } else if (name === 'MultiEdit' || name === 'NotebookEdit') {
+    edits = input.edits ?? [];
+  }
+
+  const lines = [];
+  if (name === 'MultiEdit' || name === 'NotebookEdit') {
+    for (const e of edits.slice(0, 3)) {
+      for (const l of (e.old_string ?? '').split('\n')) if (l) lines.push({ t: 'rem', code: l });
+      for (const l of (e.new_string ?? '').split('\n')) if (l) lines.push({ t: 'add', code: l });
+    }
+  } else {
+    for (const l of oldText.split('\n')) if (l) lines.push({ t: 'rem', code: l });
+    for (const l of newText.split('\n')) if (l) lines.push({ t: 'add', code: l });
+  }
+
+  const additions = lines.filter(l => l.t === 'add').length;
+  const removals  = lines.filter(l => l.t === 'rem').length;
+
+  return (
+    <div className="diff">
+      <div className="diff-head">
+        <span className="file"><Icon name="file" size={11}/> {filename}</span>
+        <span className="stats">
+          <span className="add">+{additions}</span>
+          <span className="rem">−{removals}</span>
+          <span style={{ color: 'var(--text-mute)', marginLeft: 8 }}>{status}</span>
+        </span>
+      </div>
+      <div className="diff-body">
+        {lines.slice(0, 80).map((l, i) => (
+          <div key={i} className={`diff-line ${l.t}`}>
+            <span className="ln"></span>
+            <span className="ln"></span>
+            <span className="code">{l.t === 'add' ? '+ ' : '- '}{l.code}</span>
+          </div>
+        ))}
+        {lines.length > 80 && (
+          <div className="diff-line ctx">
+            <span className="ln"></span>
+            <span className="ln"></span>
+            <span className="code">… +{lines.length - 80} more lines …</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const LiveVoiceBar = ({ levels, onStop }) => (
+  <div className="voice-bar">
+    <div className="voice-mic"><Icon name="mic" size={16}/></div>
+    <div className="voice-waves">
+      {(levels.length ? levels : Array(24).fill(0.1)).map((lv, i) => (
+        <span key={i} className="voice-wave" style={{
+          animation: 'none',
+          height: Math.max(4, lv * 26) + 'px',
+          opacity: 0.6 + lv * 0.4,
+        }}/>
+      ))}
+    </div>
+    <div className="voice-transcript" style={{ color: 'var(--cyan-300)' }}>recording…</div>
+    <button className="voice-stop" onClick={onStop} title="Stop">
+      <Icon name="x" size={12}/>
+    </button>
+  </div>
+);
+
 // Renders a single message block in the chat thread
 const MessageBlock = ({ m, agent }) => {
   switch (m.kind) {
@@ -183,18 +262,22 @@ const MessageBlock = ({ m, agent }) => {
         </div>
       );
     case 'tool_use': {
-      const inputStr = typeof m.input === 'string' ? m.input : JSON.stringify(m.input ?? {});
+      const isEdit = ['Edit', 'MultiEdit', 'Write', 'NotebookEdit'].includes(m.name);
       return (
         <div className="msg agent">
           <div className="msg-avatar"><Icon name="sparkles" size={14} style={{ color: 'white' }}/></div>
           <div className="msg-body">
-            <ToolCard
-              name={m.name}
-              args={inputStr}
-              status={m.status}
-              success={m.status !== 'error'}
-              defaultOpen={false}
-            />
+            {isEdit && m.input ? (
+              <SimpleDiffCard name={m.name} input={m.input} status={m.status}/>
+            ) : (
+              <ToolCard
+                name={m.name}
+                args={typeof m.input === 'string' ? m.input : JSON.stringify(m.input ?? {}).slice(0, 160)}
+                status={m.status}
+                success={m.status !== 'error'}
+                defaultOpen={false}
+              />
+            )}
           </div>
         </div>
       );
@@ -290,7 +373,7 @@ const ChatThread = () => {
   );
 };
 
-const Composer = ({ voice, onToggleVoice }) => {
+const Composer = () => {
   const {
     spawn, continueAgent, agents, currentAgentId,
     draftProject, openPicker, wsStatus,
@@ -298,9 +381,93 @@ const Composer = ({ voice, onToggleVoice }) => {
 
   const [val, setVal] = React.useState('');
   const [submitting, setSubmitting] = React.useState(false);
+  const [recording, setRecording] = React.useState(false);
+  const [transcribing, setTranscribing] = React.useState(false);
+  const [waveLevels, setWaveLevels] = React.useState([]);
+  const recorderRef = React.useRef(null);
+  const chunksRef = React.useRef([]);
+  const analyserCtxRef = React.useRef(null);
+  const rafRef = React.useRef(null);
+
   const agent = currentAgentId ? agents.get(currentAgentId) : null;
   const isRunning = agent?.status === 'running';
   const canSend = !submitting && !isRunning && val.trim().length > 0;
+
+  const uploadAudioForTranscription = async (blob) => {
+    setTranscribing(true);
+    try {
+      const fd = new FormData();
+      fd.append('audio', blob, 'voice.webm');
+      const res = await fetch('/api/voice/transcribe', { method: 'POST', body: fd });
+      const body = await res.json();
+      if (body.ok && body.text) {
+        setVal(v => v ? (v + ' ' + body.text) : body.text);
+      } else {
+        alert('Transcription failed: ' + JSON.stringify(body.error ?? 'unknown'));
+      }
+    } catch (err) {
+      alert('Transcription request failed: ' + err.message);
+    } finally {
+      setTranscribing(false);
+    }
+  };
+
+  const stopRecording = React.useCallback(() => {
+    const r = recorderRef.current;
+    if (!r || r.state === 'inactive') return;
+    setRecording(false);
+    r.stop();
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    setWaveLevels([]);
+  }, []);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const source = audioCtx.createMediaStreamSource(stream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 64;
+      source.connect(analyser);
+      analyserCtxRef.current = { audioCtx, analyser };
+      const data = new Uint8Array(analyser.frequencyBinCount);
+
+      const tick = () => {
+        analyser.getByteFrequencyData(data);
+        const bins = Array.from(data).slice(0, 24).map(v => v / 255);
+        setWaveLevels(bins);
+        rafRef.current = requestAnimationFrame(tick);
+      };
+      rafRef.current = requestAnimationFrame(tick);
+
+      const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : 'audio/webm';
+      const recorder = new MediaRecorder(stream, { mimeType: mime });
+      chunksRef.current = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
+      };
+      recorder.onstop = async () => {
+        if (rafRef.current) cancelAnimationFrame(rafRef.current);
+        stream.getTracks().forEach(t => t.stop());
+        audioCtx.close();
+        setWaveLevels([]);
+        const blob = new Blob(chunksRef.current, { type: mime });
+        await uploadAudioForTranscription(blob);
+      };
+      recorder.start();
+      recorderRef.current = recorder;
+      setRecording(true);
+    } catch (err) {
+      alert('Microphone access denied. Allow microphone permission to use voice input.');
+    }
+  };
+
+  const onMicClick = () => {
+    if (recording) stopRecording();
+    else startRecording();
+  };
 
   const onSubmit = async () => {
     if (!canSend) return;
@@ -331,11 +498,14 @@ const Composer = ({ voice, onToggleVoice }) => {
 
   return (
     <>
-      {voice && (
-        <VoiceBar
-          onStop={onToggleVoice}
-          transcript={{ committed: 'show me the diff for', partial: 'the orchestrator file' }}
-        />
+      {recording && <LiveVoiceBar levels={waveLevels} onStop={stopRecording}/>}
+      {transcribing && (
+        <div style={{
+          padding: '8px 14px', fontSize: 11.5,
+          color: 'var(--cyan-300)', fontFamily: 'var(--f-mono)',
+        }}>
+          · transcribing… ·
+        </div>
       )}
       <div className="composer">
         <div className="composer-inner">
@@ -357,9 +527,9 @@ const Composer = ({ voice, onToggleVoice }) => {
           />
           <div className="composer-actions" style={{ paddingBottom: 4 }}>
             <button
-              className={`icon-btn mic ${voice ? 'active' : ''}`}
-              onClick={onToggleVoice}
-              title="Voice"
+              className={`icon-btn mic ${recording ? 'active' : ''}`}
+              onClick={onMicClick}
+              title={recording ? 'Stop recording' : 'Push to talk'}
             >
               <Icon name="mic" size={14}/>
             </button>
@@ -394,20 +564,18 @@ const Composer = ({ voice, onToggleVoice }) => {
   );
 };
 
-const CenterStage = ({ showPermission, onAllow, onDeny, voice, onToggleVoice }) => {
+const CenterStage = ({ showPermission, onAllow, onDeny }) => {
   return (
     <main className="center">
       <ChatThread/>
-      <Composer
-        voice={voice}
-        onToggleVoice={onToggleVoice}
-      />
+      <Composer/>
     </main>
   );
 };
 
 Object.assign(window, {
   CenterStage, ChatThread, MessageBlock, EmptyState,
-  ThinkingIndicator, ToolCard, DiffViewer, PermissionCard, Composer, VoiceBar,
+  ThinkingIndicator, ToolCard, DiffViewer, PermissionCard, Composer,
+  VoiceBar, LiveVoiceBar, SimpleDiffCard,
   useStreamedText,
 });
