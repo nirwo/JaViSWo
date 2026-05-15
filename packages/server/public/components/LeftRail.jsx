@@ -27,21 +27,47 @@ const FILE_TREE = [
   { depth: 1, name: "tsconfig.json" },
 ];
 
+const RailSection = ({ id, label, count, headExtra, children, style, ...props }) => {
+  const { isCollapsed, toggleSection } = useCockpit();
+  const collapsed = isCollapsed(id);
+  return (
+    <div className={`rail-section${collapsed ? ' collapsed' : ''}`} style={style} {...props}>
+      <div className="rail-head" onClick={() => toggleSection(id)} style={{ cursor: 'pointer' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <Icon name={collapsed ? 'chevronR' : 'chevron'} size={10} style={{ opacity: 0.5 }}/>
+          {label}
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {count != null && <span className="count">{count}</span>}
+          {headExtra}
+        </span>
+      </div>
+      {!collapsed && children}
+    </div>
+  );
+};
+
 const LeftRail = () => {
   const [activeSession, setActiveSession] = React.useState("s1");
   return (
     <aside className="rail left hairline-r">
       {/* Sessions */}
-      <div className="rail-section" style={{flex: "0 0 auto", maxHeight: 240}}>
-        <div className="rail-head">
-          <span>Sessions</span>
-          <span style={{display:"flex", alignItems:"center", gap:8}}>
-            <span className="count">6</span>
-            <button className="icon-btn" style={{width:22, height:22}} title="New session">
-              <Icon name="plus" size={12}/>
-            </button>
-          </span>
-        </div>
+      <RailSection
+        id="left-sessions"
+        label="Sessions"
+        count={6}
+        headExtra={
+          <button
+            className="icon-btn"
+            style={{ width: 22, height: 22 }}
+            title="New session"
+            onClick={e => e.stopPropagation()}
+          >
+            <Icon name="plus" size={12}/>
+          </button>
+        }
+        style={{ flex: '0 0 auto', maxHeight: 240 }}
+      >
         <div className="rail-body">
           {SESSIONS.map(s => (
             <div
@@ -55,19 +81,27 @@ const LeftRail = () => {
             </div>
           ))}
         </div>
-      </div>
+      </RailSection>
 
       {/* File tree */}
-      <div className="rail-section" style={{flex: "1 1 auto", minHeight: 200}}>
-        <div className="rail-head">
-          <span>Workspace</span>
-          <span style={{display:"flex", alignItems:"center", gap:8}}>
+      <RailSection
+        id="left-files"
+        label="Workspace"
+        headExtra={
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span className="tag">main</span>
-            <button className="icon-btn" style={{width:22, height:22}} title="Search">
+            <button
+              className="icon-btn"
+              style={{ width: 22, height: 22 }}
+              title="Search"
+              onClick={e => e.stopPropagation()}
+            >
               <Icon name="search" size={12}/>
             </button>
           </span>
-        </div>
+        }
+        style={{ flex: '1 1 auto', minHeight: 200 }}
+      >
         <div className="rail-body">
           <div className="tree">
             {FILE_TREE.map((node, i) => (
@@ -78,7 +112,7 @@ const LeftRail = () => {
               >
                 {node.folder ? (
                   <Icon name={node.open ? "chevron" : "chevronR"} size={10} />
-                ) : <span style={{width: 10}} />}
+                ) : <span style={{ width: 10 }} />}
                 <Icon name={node.folder ? "folder" : "file"} size={11} />
                 <span>{node.name}</span>
                 {node.added && <span className="badge">{node.added}</span>}
@@ -86,16 +120,19 @@ const LeftRail = () => {
             ))}
           </div>
         </div>
-      </div>
+      </RailSection>
 
       {/* Git status */}
-      <div className="rail-section" style={{flex: "0 0 auto"}}>
-        <div className="rail-head">
-          <span>Git</span>
-          <span style={{display:"flex", alignItems:"center", gap:6}}>
-            <span className="tag cyan"><Icon name="branch" size={9}/>feat/orb-ui</span>
+      <RailSection
+        id="left-git"
+        label="Git"
+        headExtra={
+          <span className="tag cyan">
+            <Icon name="branch" size={9}/>feat/orb-ui
           </span>
-        </div>
+        }
+        style={{ flex: '0 0 auto' }}
+      >
         <div className="git-stat">
           <div className="git-cell added">
             <span className="num">+247</span>
@@ -114,15 +151,15 @@ const LeftRail = () => {
             <span className="lbl">new</span>
           </div>
         </div>
-        <div style={{display:"flex", gap:6, padding:"4px 10px 12px"}}>
-          <button className="btn" style={{flex:1, height:28, fontSize:11.5}}>
+        <div style={{ display: 'flex', gap: 6, padding: '4px 10px 12px' }}>
+          <button className="btn" style={{ flex: 1, height: 28, fontSize: 11.5 }}>
             <Icon name="git" size={11}/> Commit
           </button>
-          <button className="btn ghost" style={{height:28, fontSize:11.5}} title="Push">
+          <button className="btn ghost" style={{ height: 28, fontSize: 11.5 }} title="Push">
             <Icon name="upload" size={11}/>
           </button>
         </div>
-      </div>
+      </RailSection>
     </aside>
   );
 };

@@ -1,5 +1,17 @@
 // JaViSWo — Main app
 
+const SIZES_STORAGE_KEY = 'cockpit:layout:v1';
+function loadSizes() {
+  try {
+    const raw = localStorage.getItem(SIZES_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch { return null; }
+}
+function saveSizes(payload) {
+  try { localStorage.setItem(SIZES_STORAGE_KEY, JSON.stringify(payload)); } catch {}
+}
+
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "animationIntensity": 100,
   "density": "comfortable",
@@ -23,6 +35,11 @@ const App = () => {
 
   const [voice, setVoice] = React.useState(tweaks.voiceActive);
   const [permission, setPermission] = React.useState(tweaks.permission);
+
+  const initialSizes = loadSizes() ?? { left: 280, right: 360 };
+  const [leftW, setLeftW] = React.useState(initialSizes.left);
+  const [rightW, setRightW] = React.useState(initialSizes.right);
+  React.useEffect(() => { saveSizes({ left: leftW, right: rightW }); }, [leftW, rightW]);
 
   // Sync background + accent CSS variables
   React.useEffect(() => {
@@ -58,8 +75,12 @@ const App = () => {
 
       <div className="app">
         <TopBar/>
-        <div className="shell">
+        <div
+          className="shell"
+          style={{ gridTemplateColumns: `${leftW}px 4px 1fr 4px ${rightW}px` }}
+        >
           <LeftRail/>
+          <Resizer side="left"  min={200} max={520} getCurrent={() => leftW}  onResize={setLeftW}/>
           <CenterStage
             voice={voice}
             onToggleVoice={() => setVoice(v => !v)}
@@ -67,6 +88,7 @@ const App = () => {
             onAllow={() => setPermission(false)}
             onDeny={() => setPermission(false)}
           />
+          <Resizer side="right" min={240} max={520} getCurrent={() => rightW} onResize={setRightW}/>
           <RightRail/>
         </div>
       </div>

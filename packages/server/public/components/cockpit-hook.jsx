@@ -46,6 +46,13 @@ function CockpitProvider({ children }) {
   const [wsStatus, setWsStatus] = React.useState('connecting');
   const [latencyMs, setLatencyMs] = React.useState(null);
   const [pickerOpen, setPickerOpen] = React.useState(false);
+  const [collapsedSections, setCollapsedSections] = React.useState(() => {
+    try {
+      const raw = localStorage.getItem('cockpit:collapsed:v1');
+      if (!raw) return new Set();
+      return new Set(JSON.parse(raw));
+    } catch { return new Set(); }
+  });
 
   const wsRef = React.useRef(null);
   const subscribedRef = React.useRef(new Set());
@@ -332,6 +339,17 @@ function CockpitProvider({ children }) {
   const openPicker = React.useCallback(() => setPickerOpen(true), []);
   const closePicker = React.useCallback(() => setPickerOpen(false), []);
 
+  const toggleSection = React.useCallback((id) => {
+    setCollapsedSections(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      try { localStorage.setItem('cockpit:collapsed:v1', JSON.stringify([...next])); } catch {}
+      return next;
+    });
+  }, []);
+
+  const isCollapsed = React.useCallback((id) => collapsedSections.has(id), [collapsedSections]);
+
   const totalTokens = React.useMemo(() => {
     let s = 0;
     for (const a of agents.values()) s += a.tokens;
@@ -353,6 +371,7 @@ function CockpitProvider({ children }) {
     totalTokens,
     totalCost,
     pickerOpen,
+    collapsedSections,
     spawn,
     continueAgent,
     selectAgent,
@@ -360,6 +379,8 @@ function CockpitProvider({ children }) {
     setDraftProject: setDraftProjectAndPersist,
     openPicker,
     closePicker,
+    toggleSection,
+    isCollapsed,
   };
 
   return <CockpitContext.Provider value={value}>{children}</CockpitContext.Provider>;

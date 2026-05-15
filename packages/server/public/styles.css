@@ -1189,26 +1189,76 @@ body {
 .mono { font-family: var(--f-mono); }
 .tiny { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; }
 
+/* ===== Resizable column dividers ===== */
+.resizer {
+  width: 4px;
+  background: transparent;
+  cursor: col-resize;
+  position: relative;
+  z-index: 3;
+  transition: background 0.12s;
+  flex-shrink: 0;
+}
+.resizer:hover,
+.resizer:active {
+  background: linear-gradient(180deg, transparent, rgba(167,139,250,0.4), transparent);
+}
+.resizer::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0; right: 0;
+  height: 32px;
+  transform: translateY(-50%);
+  border-left: 1px dashed var(--hairline-strong);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.resizer:hover::after { opacity: 1; }
+
+/* ===== Collapsible rail sections ===== */
+.rail-section.collapsed {
+  flex: 0 0 auto !important;
+  max-height: none !important;
+  min-height: 0 !important;
+}
+.rail-section.collapsed .rail-body,
+.rail-section.collapsed .orb-wrap,
+.rail-section.collapsed .terminal,
+.rail-section.collapsed .handoff,
+.rail-section.collapsed .git-stat {
+  display: none;
+}
+.rail-section.collapsed .rail-head {
+  border-bottom: none;
+}
+.rail-head {
+  user-select: none;
+}
+.rail-head:hover {
+  color: var(--text-dim);
+}
+
 /* responsive */
 @media (max-width: 1280px) {
-  .shell { grid-template-columns: 248px 1fr 320px; }
   .topbar { grid-template-columns: 248px 1fr auto; }
 }
 @media (max-width: 1080px) {
-  .shell { grid-template-columns: 220px 1fr 296px; }
   .topbar { grid-template-columns: 220px 1fr auto; }
   .tab { padding: 0 8px; font-size: 11.5px; max-width: 130px; }
   .tab span:nth-child(2) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .token-meter:nth-child(2) { display: none; }
 }
 @media (max-width: 900px) {
-  .shell { grid-template-columns: 1fr 320px; }
+  .shell { grid-template-columns: 1fr 4px 320px; }
   .topbar { grid-template-columns: auto 1fr auto; }
   .rail.left { display: none; }
+  .resizer:first-of-type { display: none; }
 }
 @media (max-width: 680px) {
   .shell { grid-template-columns: 1fr; }
   .rail.right { display: none; }
+  .resizer { display: none; }
   .tabs { display: none; }
   .branch { display: none; }
 }

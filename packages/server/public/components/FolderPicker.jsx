@@ -14,13 +14,20 @@ const FolderPicker = () => {
   // Load recent + roots whenever the modal opens
   React.useEffect(() => {
     if (!pickerOpen) return;
+    console.warn('[picker] open=', pickerOpen);
     setDrillRoot(null);
     setFolders([]);
     setError(null);
     setLoading(true);
     Promise.all([
-      fetch('/api/projects/recent').then(r => r.json()),
-      fetch('/api/projects/roots').then(r => r.json()),
+      fetch('/api/projects/recent').then(async r => {
+        if (!r.ok) throw new Error(`recent ${r.status}`);
+        return r.json();
+      }),
+      fetch('/api/projects/roots').then(async r => {
+        if (!r.ok) throw new Error(`roots ${r.status}`);
+        return r.json();
+      }),
     ]).then(([recData, rootData]) => {
       setRecent(recData.recent ?? []);
       setRoots(rootData.roots ?? []);
@@ -31,6 +38,7 @@ const FolderPicker = () => {
 
   // Drill into a root
   const drillInto = React.useCallback(async (root) => {
+    console.warn('[picker] drillInto', root);
     setLoading(true);
     setError(null);
     try {
@@ -51,6 +59,7 @@ const FolderPicker = () => {
   }, []);
 
   const pickProject = React.useCallback((proj) => {
+    console.warn('[picker] pickProject', proj);
     setDraftProject({ path: proj.path, name: proj.name, hasDesignMd: proj.hasDesignMd ?? false });
     closePicker();
   }, [setDraftProject, closePicker]);
@@ -69,7 +78,7 @@ const FolderPicker = () => {
     <div
       className="modal-backdrop"
       style={{
-        position: 'fixed', inset: 0, zIndex: 9000,
+        position: 'fixed', inset: 0, zIndex: 9999,
         background: 'rgba(10,8,20,0.82)',
         backdropFilter: 'blur(8px)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -99,18 +108,20 @@ const FolderPicker = () => {
           {drillRoot ? (
             <button
               className="icon-btn"
-              style={{ flexShrink: 0 }}
+              style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 4, width: 'auto', padding: '0 8px', fontSize: 12 }}
               onClick={() => { setDrillRoot(null); setFolders([]); }}
               title="Back"
+              aria-label="Back to root list"
             >
-              <Icon name="chevronR" size={13} style={{ transform: 'rotate(180deg)' }}/>
+              <Icon name="chevronR" size={11} style={{ transform: 'rotate(180deg)', flexShrink: 0 }}/>
+              <span style={{ fontFamily: 'var(--f-sans)', fontWeight: 500, color: 'var(--text-dim)' }}>Back</span>
             </button>
           ) : (
             <Icon name="folder" size={16} style={{ color: 'var(--violet-300)', flexShrink: 0 }}/>
           )}
           <span style={{
             fontFamily: 'var(--f-sans)', fontWeight: 600, fontSize: 14,
-            color: 'var(--text-hi)', flex: 1,
+            color: 'var(--text)', flex: 1,
           }}>
             {drillRoot ? drillRoot.name : 'Pick a project'}
           </span>
@@ -225,7 +236,7 @@ const PickerRow = ({ icon, name, meta, chevron, onClick }) => (
       display: 'flex', alignItems: 'center', gap: 10,
       width: '100%', padding: '10px 18px',
       background: 'transparent', border: 'none', cursor: 'pointer',
-      color: 'var(--text-hi)', textAlign: 'left',
+      color: 'var(--text)', textAlign: 'left',
       minHeight: 44,
       transition: 'background 0.12s',
     }}
