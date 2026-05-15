@@ -24,15 +24,31 @@
       textarea { flex: 1; resize: none; min-height: 60px; }
       button { background: var(--accent); color: var(--bg); border: none; cursor: pointer; font-weight: 600; }
       button:disabled { opacity: 0.5; cursor: wait; }
-      #stream { padding: 12px 16px; overflow: auto; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; }
-      .row { padding: 4px 0; border-bottom: 1px dotted var(--border); white-space: pre-wrap; word-break: break-word; }
-      .kind { color: var(--muted); margin-right: 8px; }
-      .text { color: var(--text); }
-      .partial_text { color: var(--accent); }
-      .thinking { color: var(--accent); opacity: 0.7; }
-      .tool_use { color: #fbbf24; }
-      .stderr { color: #fb7185; }
-      .exit, .result { color: var(--muted); font-style: italic; }
+      /* Cards container */
+      #stream { padding: 12px 16px; overflow: auto; }
+
+      /* Slim status rows (no border, no padding) */
+      .streamrow { padding: 4px 8px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; }
+      .streamrow.system_init { color: var(--accent); }
+      .streamrow.result { color: var(--muted); border-top: 1px dotted var(--border); border-bottom: 1px dotted var(--border); margin: 8px 0; padding: 6px 8px; }
+      .streamrow.exit { color: var(--muted); font-style: italic; }
+      .streamrow.stderr { color: #fb7185; }
+      .streamrow.system { color: var(--muted); font-style: italic; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; padding: 4px 8px; }
+
+      /* Bubble cards */
+      .bubble { margin: 6px 0; padding: 10px 14px; border-radius: 10px; max-width: 80%; cursor: pointer; transition: background 120ms ease, border-color 120ms ease; }
+      .bubble.kind-thinking { border: 1px dashed var(--border); color: var(--muted); font-style: italic; background: rgba(94,234,212,0.03); }
+      .bubble.kind-tool_use { border: 1px solid #fbbf24; background: rgba(251,191,36,0.05); font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; }
+      .bubble.kind-text { border: 1px solid var(--accent); background: rgba(94,234,212,0.06); margin-left: auto; }
+      .bubble.kind-tool_result { border: 1px solid var(--muted); background: rgba(148,163,184,0.05); font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; }
+      .bubble:hover { background: rgba(94,234,212,0.1); }
+      .bubble.expanded { background: rgba(94,234,212,0.12); }
+
+      .bubble .bubble-header { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin-bottom: 4px; }
+      .bubble .bubble-body { font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; color: var(--text); }
+      .bubble .bubble-icon { margin-right: 6px; }
+      .bubble .card-raw { margin-top: 8px; padding: 8px; background: #050709; border: 1px solid var(--border); border-radius: 6px; font-size: 10px; color: var(--muted); overflow: auto; max-height: 200px; white-space: pre; }
+      .bubble:not(.expanded) .card-raw { display: none; }
 
       /* ── chip ── */
       .chip {
@@ -229,35 +245,143 @@
       connect();
 
       // ── stream rendering ────────────────────────────────────────────────────
-      // Build the row with createElement + textContent — NEVER use innerHTML.
+      // All DOM writes use createElement + textContent — NEVER innerHTML.
       // Agent output is fully untrusted; treating it as plain text is the only safe move.
+
+      const agentTextCard = new Map(); // agentId -> current assistant text card element (or null/missing)
+
+      // Thin wrapper for internal system messages (WS connect/disconnect/error)
       function append(kind, text) {
-        const safeKind = String(kind).replace(/[^a-z_]/gi, '_');
-        const row = document.createElement('div');
-        row.className = `row ${safeKind}`;
-        const kindSpan = document.createElement('span');
-        kindSpan.className = 'kind';
-        kindSpan.textContent = `[${kind}]`;
-        const bodySpan = document.createElement('span');
-        bodySpan.textContent = String(text ?? '');
-        row.append(kindSpan, bodySpan);
-        stream.appendChild(row);
-        stream.scrollTop = stream.scrollHeight;
+        const fakeEnv = { kind, payload: { text } };
+        renderSlimRow(fakeEnv, `[${kind}] ${String(text ?? '')}`);
       }
 
       function renderEnvelope(env) {
-        const p = env.payload ?? {};
-        let text = '';
-        if (env.kind === 'system_init') text = `model=${p.model} cwd=${p.cwd}`;
-        else if (env.kind === 'text') text = p.text;
-        else if (env.kind === 'partial_text') text = p.delta;
-        else if (env.kind === 'thinking') text = `${p.thinking}`;
-        else if (env.kind === 'tool_use') text = `${p.name}(${JSON.stringify(p.input)})`;
-        else if (env.kind === 'result') text = `cost=$${p.total_cost_usd ?? 0} dur=${p.duration_ms ?? 0}ms`;
-        else if (env.kind === 'stderr') text = p.text;
-        else if (env.kind === 'exit') text = `exit code ${p.code}`;
-        else text = JSON.stringify(p);
-        append(env.kind, text);
+        // Slim rows for these kinds
+        if (env.kind === 'system_init') {
+          const p = env.payload ?? {};
+          return renderSlimRow(env, `⌘ ${p.model ?? '?'} @ ${p.cwd ?? '?'}`);
+        }
+        if (env.kind === 'result') {
+          const p = env.payload ?? {};
+          const usage = p.usage ?? {};
+          return renderSlimRow(env, `✓ ${usage.input_tokens ?? 0} in · ${usage.output_tokens ?? 0} out · $${(p.total_cost_usd ?? 0).toFixed(4)} · ${p.duration_ms ?? 0}ms`);
+        }
+        if (env.kind === 'exit') return renderSlimRow(env, `× exit ${env.payload?.code ?? '?'}`);
+        if (env.kind === 'stderr') return renderSlimRow(env, env.payload?.text ?? '');
+
+        // partial_text → aggregate into current assistant card
+        if (env.kind === 'partial_text') {
+          let card = agentTextCard.get(env.agentId);
+          if (!card) {
+            card = makeBubble(env, '', 'text', 'assistant');
+            agentTextCard.set(env.agentId, card);
+            stream.appendChild(card);
+          }
+          const body = card.querySelector('.bubble-body');
+          body.textContent += env.payload?.delta ?? '';
+          autoScroll();
+          return;
+        }
+
+        // text → finalize the current assistant card OR create one with full text
+        if (env.kind === 'text') {
+          let card = agentTextCard.get(env.agentId);
+          if (!card) {
+            card = makeBubble(env, env.payload?.text ?? '', 'text', 'assistant');
+            stream.appendChild(card);
+          } else {
+            const body = card.querySelector('.bubble-body');
+            body.textContent = env.payload?.text ?? '';
+            // Update data-envelope to the final 'text' kind envelope
+            card.dataset.envelope = JSON.stringify(env);
+          }
+          agentTextCard.set(env.agentId, null); // close — next partial creates new card
+          autoScroll();
+          return;
+        }
+
+        // Any other kind closes the assistant card and starts a new bubble
+        agentTextCard.set(env.agentId, null);
+
+        if (env.kind === 'thinking') {
+          const card = makeBubble(env, env.payload?.thinking ?? '', 'thinking', '💭 thinking');
+          stream.appendChild(card);
+          autoScroll();
+          return;
+        }
+        if (env.kind === 'tool_use') {
+          const name = env.payload?.name ?? '?';
+          const inputStr = JSON.stringify(env.payload?.input ?? {}, null, 2);
+          const card = makeBubble(env, inputStr, 'tool_use', `🛠 ${name}`);
+          stream.appendChild(card);
+          autoScroll();
+          return;
+        }
+        if (env.kind === 'tool_result') {
+          const content = env.payload?.content ?? '';
+          const bodyText = typeof content === 'string' ? content : JSON.stringify(content, null, 2);
+          const card = makeBubble(env, bodyText, 'tool_result', '↩ result');
+          stream.appendChild(card);
+          autoScroll();
+          return;
+        }
+
+        // Unknown kind — fallback slim row
+        renderSlimRow(env, `${env.kind}: ${JSON.stringify(env.payload ?? {})}`);
+      }
+
+      function makeBubble(env, bodyText, kindClass, headerLabel) {
+        const card = document.createElement('div');
+        const safeClass = String(kindClass).replace(/[^a-z_]/gi, '_');
+        card.className = `bubble kind-${safeClass}`;
+        card.dataset.envelope = JSON.stringify(env);
+
+        const header = document.createElement('div');
+        header.className = 'bubble-header';
+        header.textContent = headerLabel;
+        card.appendChild(header);
+
+        const body = document.createElement('div');
+        body.className = 'bubble-body';
+        body.textContent = String(bodyText ?? '');
+        card.appendChild(body);
+
+        card.addEventListener('click', () => toggleExpand(card));
+        return card;
+      }
+
+      function toggleExpand(card) {
+        if (card.classList.contains('expanded')) {
+          card.classList.remove('expanded');
+          const raw = card.querySelector('.card-raw');
+          if (raw) raw.remove();
+        } else {
+          card.classList.add('expanded');
+          const raw = document.createElement('pre');
+          raw.className = 'card-raw';
+          try {
+            raw.textContent = JSON.stringify(JSON.parse(card.dataset.envelope), null, 2);
+          } catch {
+            raw.textContent = '(raw envelope unavailable)';
+          }
+          card.appendChild(raw);
+        }
+      }
+
+      function renderSlimRow(env, label) {
+        const row = document.createElement('div');
+        const safeKind = String(env.kind).replace(/[^a-z_]/gi, '_');
+        row.className = `streamrow ${safeKind}`;
+        row.textContent = label;
+        stream.appendChild(row);
+        autoScroll();
+      }
+
+      function autoScroll() {
+        const THRESHOLD = 50;
+        const atBottom = stream.scrollTop + stream.clientHeight >= stream.scrollHeight - THRESHOLD;
+        if (atBottom) stream.scrollTop = stream.scrollHeight;
       }
 
       // ── relative time ───────────────────────────────────────────────────────
@@ -562,8 +686,12 @@
       });
 
       document.addEventListener('keydown', (ev) => {
-        if (ev.key === 'Escape' && !pickerModal.classList.contains('hidden')) {
+        if (ev.key !== 'Escape') return;
+        if (!pickerModal.classList.contains('hidden')) {
           closePicker();
+        } else {
+          // Close any expanded bubble cards
+          document.querySelectorAll('.bubble.expanded').forEach((el) => toggleExpand(el));
         }
       });
 
