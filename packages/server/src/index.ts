@@ -9,6 +9,7 @@ import { RecentsStore } from './recents.js';
 import { AgentSupervisor } from './supervisor.js';
 import { attachWebSocket } from './ws.js';
 import { startFileWatch } from './file-watch.js';
+import { PreviewManager } from './preview.js';
 
 const config = loadConfig();
 
@@ -28,7 +29,9 @@ const supervisor = new AgentSupervisor(registry, (env) => broadcast(env));
 const legacyRecentsPath = join(homedir(), '.cockpit', 'recents.json');
 const recents = new RecentsStore(db, 10, legacyRecentsPath);
 
-const app = buildHttpApp(config, registry, supervisor, recents, () => clientCount());
+const previewManager = new PreviewManager();
+
+const app = buildHttpApp(config, registry, supervisor, recents, () => clientCount(), previewManager);
 
 const server = serve(
   { fetch: app.fetch, hostname: config.host, port: config.port },
@@ -44,10 +47,12 @@ clientCount = ws.clientCount;
 startFileWatch(config, ws.broadcastAll);
 
 process.on('SIGTERM', () => {
+  previewManager.shutdown();
   closeDb();
   process.exit(0);
 });
 process.on('SIGINT', () => {
+  previewManager.shutdown();
   closeDb();
   process.exit(0);
 });

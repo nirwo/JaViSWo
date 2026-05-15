@@ -11,6 +11,7 @@ import { readTree } from './files.js';
 import { gitBranch, gitStatus } from './git.js';
 import { transcribe } from './transcribe.js';
 import { loadDesignMd } from './design-md.js';
+import type { PreviewManager } from './preview.js';
 
 const READ_MAX_BYTES = 1_000_000;
 
@@ -47,6 +48,7 @@ export function buildHttpApp(
   supervisor: AgentSupervisor,
   recents: RecentsStore,
   getClientCount: () => number = () => 0,
+  previewManager?: PreviewManager,
 ): Hono {
   const app = new Hono();
 
@@ -270,6 +272,91 @@ export function buildHttpApp(
     const bytes = Buffer.from(await file.arrayBuffer());
     const result = await transcribe(bytes, file.type || 'audio/webm');
     return c.json(result, result.ok ? 200 : 503);
+  });
+
+  // ── Preview API ──────────────────────────────────────────────────────────────
+
+  const PreviewPathBody = z.object({
+    projectPath: z.string().min(1),
+  });
+
+  app.post('/api/preview/start', async (c) => {
+    if (!previewManager) return c.json({ error: { code: 'PREVIEW_DISABLED' } }, 503);
+    const body = await c.req.json().catch(() => null);
+    const parsed = PreviewPathBody.safeParse(body);
+    if (!parsed.success) return c.json({ error: { code: 'VALIDATION_ERROR' } }, 400);
+    const root = parsed.data.projectPath;
+    if (!isRootAllowed(root)) return c.json({ error: { code: 'ROOT_NOT_ALLOWED' } }, 403);
+    const status = await previewManager.start(root);
+    return c.json(status);
+  });
+
+  app.post('/api/preview/stop', async (c) => {
+    if (!previewManager) return c.json({ error: { code: 'PREVIEW_DISABLED' } }, 503);
+    const body = await c.req.json().catch(() => null);
+    const parsed = PreviewPathBody.safeParse(body);
+    if (!parsed.success) return c.json({ error: { code: 'VALIDATION_ERROR' } }, 400);
+    const status = previewManager.stopByPath(parsed.data.projectPath);
+    if (!status) return c.json({ error: { code: 'NOT_FOUND' } }, 404);
+    return c.json(status);
+  });
+
+  app.get('/api/preview/status', (c) => {
+    const root = c.req.query('projectPath') ?? '';
+    if (!root || !previewManager) return c.json({ status: null });
+    return c.json({ status: previewManager.getByPath(root) });
+  });
+
+  app.get('/api/preview/log', (c) => {
+    const slug = c.req.query('slug') ?? '';
+    if (!slug || !previewManager) return c.json({ lines: [] });
+    return c.json({ lines: previewManager.getLog(slug) });
+  });
+
+  // ── Preview HTTP proxy ────────────────────────────────────────────────────────
+  // NOTE: WebSocket HMR is NOT proxied through this handler — only HTTP traffic
+  // is forwarded. Dev-server hot-reload events will not reach the iframed app.
+  // Users can use the iframe reload button to pick up changes manually.
+
+  app.get('/preview/:slug', (c) => {
+    // Redirect /preview/<slug> → /preview/<slug>/ so relative paths resolve correctly
+    return c.redirect(c.req.path + '/');
+  });
+
+  app.all('/preview/:slug/*', async (c) => {
+    if (!previewManager) return c.text('Preview not available', 503);
+    const slug = c.req.param('slug');
+    const target = previewManager.resolveProxy(slug);
+    if (!target) return c.text('Preview not running', 503);
+
+    // Strip the /preview/<slug> prefix to get the upstream path
+    const prefix = `/preview/${slug}`;
+    const rest = c.req.path.startsWith(prefix) ? c.req.path.slice(prefix.length) || '/' : '/';
+    const qs = c.req.url.includes('?') ? '?' + c.req.url.split('?').slice(1).join('?') : '';
+    const targetUrl = `http://${target.host}:${target.port}${rest}${qs}`;
+
+    try {
+      const headers = new Headers();
+      c.req.raw.headers.forEach((v, k) => {
+        if (k === 'host') return; // strip — upstream sees its own host
+        headers.set(k, v);
+      });
+      const init: RequestInit = {
+        method: c.req.method,
+        headers,
+        redirect: 'manual',
+      };
+      if (c.req.method !== 'GET' && c.req.method !== 'HEAD') {
+        init.body = await c.req.raw.arrayBuffer();
+      }
+      const res = await fetch(targetUrl, init);
+      const resHeaders = new Headers(res.headers);
+      // fetch already decodes content-encoding; remove the header to avoid double-decode
+      resHeaders.delete('content-encoding');
+      return new Response(res.body, { status: res.status, headers: resHeaders });
+    } catch (err) {
+      return c.text('Proxy error: ' + (err as Error).message, 502);
+    }
   });
 
   app.use('/*', serveStatic({ root: config.publicDir }));

@@ -821,6 +821,12 @@ const CenterStage = ({ showPermission, onAllow, onDeny }) => {
           >
             <Icon name="file" size={11}/> Editor
           </button>
+          <button
+            className={`center-tab ${centerView === 'preview' ? 'active' : ''}`}
+            onClick={() => setCenterView('preview')}
+          >
+            <Icon name="globe" size={11}/> Preview
+          </button>
           <span style={{ flex: 1 }}/>
           <span style={{
             fontFamily: 'var(--f-mono)',
@@ -836,6 +842,8 @@ const CenterStage = ({ showPermission, onAllow, onDeny }) => {
         <ChatThread/>
       ) : centerView === 'graph' ? (
         <RelationsGraph agent={agent}/>
+      ) : centerView === 'preview' ? (
+        <PreviewPane projectPath={agent?.projectPath}/>
       ) : (
         <CodeEditor/>
       )}
