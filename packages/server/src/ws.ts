@@ -19,6 +19,9 @@ export function attachWebSocket(httpServer: HttpServer, registry: AgentRegistry)
 
   wss.on('connection', (ws) => {
     subs.set(ws, []);
+    ws.on('error', () => {
+      subs.delete(ws);
+    });
     ws.on('message', (raw) => {
       let payload: unknown;
       try {
@@ -32,6 +35,7 @@ export function attachWebSocket(httpServer: HttpServer, registry: AgentRegistry)
       const list = subs.get(ws) ?? [];
       list.push({ agentId, sinceSeq });
       subs.set(ws, list);
+      if (ws.readyState !== WebSocket.OPEN) return;
       // Replay tail since sinceSeq.
       for (const e of registry.tail(agentId, sinceSeq)) {
         ws.send(JSON.stringify(e));

@@ -42,6 +42,8 @@ export class AgentSupervisor {
       input.projectPath,
       '--max-turns',
       String(input.maxTurns ?? DEFAULTS.maxTurns),
+      '--max-budget-usd',
+      String(input.maxBudgetUsd ?? DEFAULTS.maxBudgetUsd),
       '--model',
       input.model ?? DEFAULTS.model,
       '--permission-mode',
