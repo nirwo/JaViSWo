@@ -241,11 +241,21 @@ Per-project file detected at `<projectRoot>/DESIGN.md`. Format: Google Labs Code
 ## Lifecycle
 
 1. **Detection** — folder picker scans for `DESIGN.md`; shows badge if present.
-2. **Initialization** — if absent, "Initialize" CTA opens a template gallery (Heritage, Generic Dark, etc.) → writes `DESIGN.md`.
+2. **Initialization** — if absent, "Initialize" CTA opens a template gallery (`Blank`, `Heritage` (Google reference), `Bloomberg Dark` (matches the cockpit's own theme — JetBrains Mono + cyan accent + verdict palette), `Aurora Light`) → writes `DESIGN.md` at the project root.
 3. **Parsing** — `/api/design/:projectId` runs `parse()` + `lint()`; returns tokens + diagnostics.
-4. **Injection** — every agent spawned in a project with DESIGN.md gets:
-   - `--append-system-prompt "Project follows DESIGN.md (at @DESIGN.md). Use these tokens. Do not invent colors or type styles outside the system. Run @google/design.md/linter on any HTML/JSX you generate before marking the task complete."`
-   - The agent's `Read` tool can load the file on demand (no large prompt bloat).
+4. **Injection** — every agent spawned in a project with DESIGN.md gets a literal `--append-system-prompt` block (constant across all cockpit spawns):
+
+   ```
+   This project follows DESIGN.md, located at the project root.
+   Read it before producing any visual code (HTML, JSX, CSS, SVG,
+   Mermaid). Use the YAML frontmatter tokens exactly — do not invent
+   colors, font families, or type sizes outside the system. After
+   generating visual code, run `npx @google/design.md lint DESIGN.md`
+   against any inline tokens you used; fix violations before
+   reporting the task complete.
+   ```
+
+   Cockpit does NOT inline the file contents — the agent's `Read` tool loads it on demand (avoids prompt bloat when the file is large).
 5. **Validation** — every Artifact pane render runs `lint()` on the emitted HTML; badge displays `✓ matches tokens` or `⚠ N violations` with a hover-list.
 6. **Evolution** — "Update DESIGN.md" pane action spawns a small Sonnet agent (with the `frontend-design` skill loaded) to propose token diffs; user approves diff.
 7. **Export** — UI button runs `npx @google/design.md export --format <json-tailwind|css-tailwind|dtcg> DESIGN.md` and offers download.
@@ -358,7 +368,10 @@ Each milestone is independently usable; cumulative.
 
 ```jsonc
 {
-  "host": "0.0.0.0",                   // override to Tailnet IP for stricter binding
+  "host": "0.0.0.0",                   // out-of-the-box; works on plain LAN.
+                                        // RECOMMENDED: change to your Tailnet IP
+                                        // (e.g. "100.x.y.z") so the port is only
+                                        // reachable from Tailscale peers.
   "port": 8787,
   "roots": ["~/AI Development", "~/Projects"],
   "concurrencyCap": 5,
