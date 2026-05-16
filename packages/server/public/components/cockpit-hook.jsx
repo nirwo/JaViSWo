@@ -212,6 +212,26 @@ function CockpitProvider({ children }) {
   const [hideToolWork, setHideToolWork] = React.useState(
     () => localStorage.getItem('cockpit:hide-tool-work') === '1',
   );
+
+  // M3.12 — theme toggle (light / dark). Defaults to dark for backwards
+  // compat; reads localStorage first, then system preference.
+  const [theme, setThemeState] = React.useState(() => {
+    const stored = localStorage.getItem('cockpit:theme');
+    if (stored === 'light' || stored === 'dark') return stored;
+    if (typeof window !== 'undefined' && window.matchMedia) {
+      return window.matchMedia('(prefers-color-scheme: light)').matches
+        ? 'light' : 'dark';
+    }
+    return 'dark';
+  });
+  const setTheme = React.useCallback((next) => {
+    const v = next === 'light' ? 'light' : 'dark';
+    setThemeState(v);
+    try { localStorage.setItem('cockpit:theme', v); } catch {}
+  }, []);
+  React.useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+  }, [theme]);
   const setHide = React.useCallback((v) => {
     setHideToolWork(v);
     try { localStorage.setItem('cockpit:hide-tool-work', v ? '1' : '0'); } catch {}
@@ -1002,6 +1022,8 @@ function CockpitProvider({ children }) {
     setJarvisListenerStatus,
     jarvisInterimText,
     setJarvisInterimText,
+    theme,
+    setTheme,
     jarvisAgentId,
     jarvisReply,
     setJarvisReply,
