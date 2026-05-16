@@ -18,7 +18,8 @@ function freshDb(): Database.Database {
       turn          INTEGER NOT NULL DEFAULT 1,
       sessionId     TEXT,
       seqCounter    INTEGER NOT NULL DEFAULT 0,
-      status        TEXT NOT NULL DEFAULT 'idle'
+      status        TEXT NOT NULL DEFAULT 'idle',
+      spawned_by    TEXT
     );
     CREATE TABLE envelopes (
       agentId         TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,

@@ -9,6 +9,7 @@ export type AgentMeta = {
   firstPrompt: string;
   turn: number;
   sessionId?: string;
+  spawnedBy?: string;
 };
 
 export type AgentHandle = AgentMeta & {
@@ -26,6 +27,7 @@ export class AgentRegistry {
     selectAgent: BetterSqlite3.Statement;
     selectAllAgents: BetterSqlite3.Statement;
     updateSessionId: BetterSqlite3.Statement;
+    updateSpawnedBy: BetterSqlite3.Statement;
     updateFirstPrompt: BetterSqlite3.Statement;
     bumpSeq: BetterSqlite3.Statement;
     bumpTurn: BetterSqlite3.Statement;
@@ -51,12 +53,13 @@ export class AgentRegistry {
         `SELECT agentId, seq, ts, kind, parentToolUseId, sessionId, payload FROM envelopes WHERE agentId = ? AND seq > ? ORDER BY seq LIMIT ?`,
       ),
       selectAgent: db.prepare(
-        `SELECT id, projectPath, createdAt, firstPrompt, turn, sessionId FROM agents WHERE id = ?`,
+        `SELECT id, projectPath, createdAt, firstPrompt, turn, sessionId, spawned_by AS spawnedBy FROM agents WHERE id = ?`,
       ),
       selectAllAgents: db.prepare(
-        `SELECT id, projectPath, createdAt, firstPrompt, turn, sessionId FROM agents ORDER BY createdAt DESC`,
+        `SELECT id, projectPath, createdAt, firstPrompt, turn, sessionId, spawned_by AS spawnedBy FROM agents ORDER BY createdAt DESC`,
       ),
       updateSessionId: db.prepare(`UPDATE agents SET sessionId = ? WHERE id = ?`),
+      updateSpawnedBy: db.prepare(`UPDATE agents SET spawned_by = ? WHERE id = ?`),
       updateFirstPrompt: db.prepare(
         `UPDATE agents SET firstPrompt = ? WHERE id = ? AND firstPrompt = ''`,
       ),
@@ -137,16 +140,28 @@ export class AgentRegistry {
   get(agentId: string): AgentMeta | undefined {
     const row = this.stmts.selectAgent.get(agentId) as AgentMeta | undefined;
     if (!row) return undefined;
-    return { ...row, sessionId: row.sessionId ?? undefined };
+    return {
+      ...row,
+      sessionId: row.sessionId ?? undefined,
+      spawnedBy: row.spawnedBy ?? undefined,
+    };
   }
 
   list(): AgentMeta[] {
     const rows = this.stmts.selectAllAgents.all() as AgentMeta[];
-    return rows.map((r) => ({ ...r, sessionId: r.sessionId ?? undefined }));
+    return rows.map((r) => ({
+      ...r,
+      sessionId: r.sessionId ?? undefined,
+      spawnedBy: r.spawnedBy ?? undefined,
+    }));
   }
 
   setSessionId(agentId: string, sessionId: string): void {
     this.stmts.updateSessionId.run(sessionId, agentId);
+  }
+
+  setSpawnedBy(agentId: string, by: string): void {
+    this.stmts.updateSpawnedBy.run(by, agentId);
   }
 
   setFirstPrompt(agentId: string, prompt: string): void {

@@ -50,6 +50,12 @@ function applyMigrations(d: Database.Database): void {
       ts   INTEGER NOT NULL,
       seq  INTEGER NOT NULL DEFAULT 0
     );
+    CREATE TABLE IF NOT EXISTS jarvis_sessions (
+      id          TEXT PRIMARY KEY,
+      agent_id    TEXT NOT NULL,
+      created_at  INTEGER NOT NULL,
+      last_active INTEGER NOT NULL
+    );
   `);
 
   // Additive migrations: safe to re-run (ALTER TABLE IF NOT EXISTS col is not
@@ -62,4 +68,6 @@ function applyMigrations(d: Database.Database): void {
     }
   };
   addColumnIfMissing('recents', 'seq', 'INTEGER NOT NULL DEFAULT 0');
+  // M3.5: tag agents JARVIS spawned so the UI can badge them.
+  addColumnIfMissing('agents', 'spawned_by', 'TEXT');
 }
