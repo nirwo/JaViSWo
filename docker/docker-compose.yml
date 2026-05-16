@@ -1,0 +1,68 @@
+# JaViSWo — Docker DNS + reverse proxy
+#
+# Two services:
+#   - dns:   dnsmasq that resolves javiswo.local / cockpit.local /
+#            jarvis.local → this Mac's LAN IP. Forwards everything else
+#            upstream so it can act as the LAN's general DNS server.
+#   - nginx: optional reverse proxy that terminates TLS on port 443
+#            and forwards to the Node cockpit at host:8787. Brought up
+#            with `docker compose --profile nginx up -d`.
+#
+# Configure HOST_IP in .env (copy .env.example to .env first). The
+# setup-network.sh script does this automatically.
+#
+# Usage:
+#   cd docker
+#   ./up.sh                                    # DNS only
+#   docker compose --profile nginx up -d       # DNS + nginx on 443
+#   docker compose down                        # tear everything down
+
+services:
+  dns:
+    image: jpillora/dnsmasq:1.1.0
+    container_name: javiswo-dns
+    restart: unless-stopped
+    ports:
+      - "53:53/udp"
+      - "53:53/tcp"
+      # Optional web UI for dnsmasq stats — auth required if exposed.
+      - "127.0.0.1:5380:8080"
+    environment:
+      HTTP_USER: admin
+      HTTP_PASS: ${DNS_ADMIN_PASS:-changeme}
+    command: >
+      --log-facility=-
+      --address=/javiswo.local/${HOST_IP}
+      --address=/cockpit.local/${HOST_IP}
+      --address=/jarvis.local/${HOST_IP}
+      --server=1.1.1.1
+      --server=8.8.8.8
+      --no-resolv
+      --no-hosts
+      --domain-needed
+      --bogus-priv
+    cap_add:
+      - NET_ADMIN
+
+  # Optional — bring up with `--profile nginx`. Terminates TLS on 443
+  # using the mkcert-signed cert from ~/.cockpit/tls/, proxies everything
+  # to the Node cockpit running on host port 8787.
+  nginx:
+    profiles: ["nginx"]
+    image: nginx:1.27-alpine
+    container_name: javiswo-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/javiswo.conf:/etc/nginx/conf.d/javiswo.conf:ro
+      - ${HOME}/.cockpit/tls:/etc/nginx/tls:ro
+    extra_hosts:
+      # Lets nginx upstream block use `host.docker.internal` to reach the
+      # Node cockpit running on the Mac itself. Docker Desktop wires this
+      # automatically; this entry pins it in case the host network mode
+      # is changed later.
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - dns
