@@ -95,6 +95,11 @@ function CockpitProvider({ children }) {
   // 'idle' | 'wake' | 'listening' | 'processing' | 'done' | 'error'
   const [jarvisTranscript, setJarvisTranscript] = React.useState('');
   const [jarvisError, setJarvisError] = React.useState(null);
+  // Diagnostic state — visible to the user via the floating status pill
+  const [jarvisListenerStatus, setJarvisListenerStatus] = React.useState('off');
+  // 'off' | 'starting' | 'ready' | 'paused' | 'no-support' | 'insecure' |
+  // 'no-mic' | 'denied' | 'error'
+  const [jarvisInterimText, setJarvisInterimText] = React.useState('');
 
   const setJarvisEnabled = React.useCallback((v) => {
     setJarvisEnabledState(v);
@@ -102,6 +107,8 @@ function CockpitProvider({ children }) {
       setJarvisState('idle');
       setJarvisTranscript('');
       setJarvisError(null);
+      setJarvisListenerStatus('off');
+      setJarvisInterimText('');
     }
     try { localStorage.setItem('cockpit:jarvis', v ? '1' : '0'); } catch {}
   }, []);
@@ -576,6 +583,10 @@ function CockpitProvider({ children }) {
     jarvisError,
     setJarvisError,
     dismissJarvis,
+    jarvisListenerStatus,
+    setJarvisListenerStatus,
+    jarvisInterimText,
+    setJarvisInterimText,
     spawn,
     continueAgent,
     selectAgent,
