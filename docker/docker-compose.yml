@@ -15,7 +15,7 @@
 
 services:
   dns:
-    image: pihole/pihole:2025.10.0
+    image: pihole/pihole:2026.05.0
     container_name: javiswo-pihole
     hostname: javiswo-pihole
     restart: unless-stopped
