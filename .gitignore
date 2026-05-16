@@ -6,3 +6,7 @@ dist/
 *.db-journal
 .DS_Store
 *.tsbuildinfo
+
+# Docker runtime — never commit
+docker/.env
+docker/pihole/

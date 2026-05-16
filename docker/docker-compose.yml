@@ -1,76 +1,67 @@
-# JaViSWo — Docker DNS + reverse proxy
+# JaViSWo — Pi-hole DNS + optional nginx reverse proxy
 #
-# Two services:
-#   - dns:   dnsmasq that resolves javiswo.local / cockpit.local /
-#            jarvis.local → this Mac's LAN IP. Forwards everything else
-#            upstream so it can act as the LAN's general DNS server.
-#   - nginx: optional reverse proxy that terminates TLS on port 443
-#            and forwards to the Node cockpit at host:8787. Brought up
-#            with `docker compose --profile nginx up -d`.
+# Pi-hole replaces the previous dnsmasq + AdGuard combo. It owns:
+#   - DNS resolution for javiswo.local / cockpit.local / jarvis.local
+#     (custom DNS records, populated from pihole/custom.list by up.sh)
+#   - Filtering: family-safe upstream (Cloudflare 1.1.1.3 + 1.0.0.3),
+#     plus Pi-hole's own blocklists (configurable in the admin UI)
+#   - Stats and web admin on http://localhost:8053/admin/
 #
-# Configure HOST_IP in .env (copy .env.example to .env first). The
-# setup-network.sh script does this automatically.
+# Pi-hole uses dnsmasq internally — so all the LAN-local forwarding,
+# caching, and per-domain server logic still works. The win is built-in
+# blocklist management + web UI + active maintenance.
 #
-# Usage:
-#   cd docker
-#   ./up.sh                                    # DNS only
-#   docker compose --profile nginx up -d       # DNS + nginx on 443
-#   docker compose down                        # tear everything down
+# Optional: bring up nginx on 443 with `--profile nginx`.
 
 services:
   dns:
-    image: jpillora/dnsmasq:1.1.0
-    container_name: javiswo-dns
+    image: pihole/pihole:2025.10.0
+    container_name: javiswo-pihole
+    hostname: javiswo-pihole
     restart: unless-stopped
     ports:
-      - "53:53/udp"
       - "53:53/tcp"
-      # Optional web UI for dnsmasq stats — auth required if exposed.
-      - "127.0.0.1:5380:8080"
+      - "53:53/udp"
+      # Web admin UI. Pi-hole serves on container port 80; we map to 8053
+      # so it doesn't clash with nginx on host port 80 when running the
+      # `nginx` profile. Bind to 127.0.0.1 — admin UI should not be
+      # exposed on the LAN; SSH-tunnel or use a VPN if you need remote
+      # access.
+      - "127.0.0.1:8053:80/tcp"
     environment:
-      HTTP_USER: admin
-      HTTP_PASS: ${DNS_ADMIN_PASS:-changeme}
-    # Forwarding rules:
-    #
-    #   1. JaViSWo aliases (javiswo.local, cockpit.local, jarvis.local)
-    #      → answered locally with ${HOST_IP}.
-    #
-    #   2. SCOPED router lookups — only queries for the router's local
-    #      domains (.lan, .home.arpa, in-addr.arpa for private subnets)
-    #      go to ${ROUTER_IP}. That keeps router-local records (nas.lan,
-    #      printer.lan, smart-home device names) working WITHOUT routing
-    #      general internet queries through your ISP's unfiltered DNS.
-    #
-    #   3. General internet queries → ${UPSTREAM_DNS_1} and
-    #      ${UPSTREAM_DNS_2} (family-safe by default — Cloudflare 1.1.1.3
-    #      + AdGuard 94.140.14.15). These block malware + phishing +
-    #      adult content + ads. Switch profile in .env.
-    command: >
-      --log-facility=-
-      --address=/javiswo.local/${HOST_IP}
-      --address=/cockpit.local/${HOST_IP}
-      --address=/jarvis.local/${HOST_IP}
-      --server=/lan/${ROUTER_IP}
-      --server=/home.arpa/${ROUTER_IP}
-      --server=/in-addr.arpa/${ROUTER_IP}
-      --server=${UPSTREAM_DNS_1:-1.1.1.3}
-      --server=${UPSTREAM_DNS_2:-94.140.14.15}
-      --no-resolv
-      --no-hosts
-      --domain-needed
-      --bogus-priv
-      --cache-size=1000
+      TZ: ${TZ:-Etc/UTC}
+      # Admin password — must be set or the web UI shows a random one
+      # at first boot. up.sh asks the user to set this in .env.
+      FTLCONF_webserver_api_password: ${PIHOLE_PASSWORD:-changeme}
+      # Upstream DNS — derived from UPSTREAM_PROFILE in .env; up.sh
+      # writes these. Family-safe by default.
+      FTLCONF_dns_upstreams: "${UPSTREAM_DNS_1:-1.1.1.3};${UPSTREAM_DNS_2:-1.0.0.3}"
+      # Listen on all interfaces inside the container — Docker NATs to
+      # the host port 53 either way, but Pi-hole defaults to "local" mode
+      # which rejects queries from outside its own network namespace.
+      FTLCONF_dns_listeningMode: "ALL"
+      # Custom DNS records for the JaViSWo aliases. Pi-hole v6 reads
+      # these directly from the env (semicolon-separated). HOST_IP comes
+      # from .env via docker compose substitution.
+      FTLCONF_dns_hosts: "${HOST_IP} javiswo.local;${HOST_IP} cockpit.local;${HOST_IP} jarvis.local"
+      # Disable DHCP — we only want Pi-hole as a DNS resolver, not a
+      # DHCP server (your router already does DHCP).
+      FTLCONF_dhcp_active: "false"
+    volumes:
+      # Pi-hole config + adlists + custom DNS records persist here.
+      # up.sh writes ./pihole/etc-pihole/custom.list (JaViSWo aliases)
+      # BEFORE starting the container — Pi-hole reads it on boot.
+      - ./pihole/etc-pihole:/etc/pihole
     cap_add:
+      - SYS_NICE
       - NET_ADMIN
+      - CHOWN
     healthcheck:
-      # dnsmasq inside the container — query for one of our anchors. If
-      # it doesn't answer in 5s, the container is unhealthy and Docker
-      # restarts it.
-      test: ["CMD-SHELL", "nslookup javiswo.local 127.0.0.1 || exit 1"]
+      test: ["CMD-SHELL", "dig @127.0.0.1 -p 53 javiswo.local +short +time=2 +tries=1 | grep -q '^[0-9]'"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 30s
 
   # Optional — bring up with `--profile nginx`. Terminates TLS on 443
   # using the mkcert-signed cert from ~/.cockpit/tls/, proxies everything
@@ -87,10 +78,6 @@ services:
       - ./nginx/javiswo.conf:/etc/nginx/conf.d/javiswo.conf:ro
       - ${HOME}/.cockpit/tls:/etc/nginx/tls:ro
     extra_hosts:
-      # Lets nginx upstream block use `host.docker.internal` to reach the
-      # Node cockpit running on the Mac itself. Docker Desktop wires this
-      # automatically; this entry pins it in case the host network mode
-      # is changed later.
       - "host.docker.internal:host-gateway"
     depends_on:
       - dns

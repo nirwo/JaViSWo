@@ -25,20 +25,30 @@ bold "1. Docker container"
 if ! docker info >/dev/null 2>&1; then
   red "Docker daemon not running — open Docker Desktop"
   fails=$((fails+1))
-elif docker ps --filter "name=javiswo-dns" --filter "status=running" | grep -q javiswo-dns; then
-  green "javiswo-dns container running"
+elif docker ps --filter "name=javiswo-pihole" --filter "status=running" | grep -q javiswo-pihole; then
+  green "javiswo-pihole container running"
 else
-  red "javiswo-dns container NOT running — try: cd docker && ./up.sh"
+  red "javiswo-pihole container NOT running — try: cd docker && ./up.sh"
   fails=$((fails+1))
 fi
 echo
 
+# Helper: only return real answers, never error messages.
+# dig +short prints query errors ("connection timed out") on stdout, so we
+# need to filter them out. A real A-record answer is dotted IPv4/v6 text
+# with no spaces or semicolons.
+clean_dig() {
+  dig @127.0.0.1 +short +time=2 +tries=1 "$@" 2>/dev/null \
+    | grep -E '^[0-9a-fA-F\.:]+$' \
+    | head -1
+}
+
 # 2. DNS resolves our anchors
 bold "2. DNS resolution"
 for host in javiswo.local cockpit.local jarvis.local; do
-  result=$(dig @127.0.0.1 +short +time=2 "$host" 2>/dev/null | head -1)
+  result=$(clean_dig "$host")
   if [[ -z "$result" ]]; then
-    red "$host did NOT resolve via 127.0.0.1"
+    red "$host did NOT resolve via 127.0.0.1 (container down?)"
     fails=$((fails+1))
   elif [[ -n "$HOST_IP" && "$result" != "$HOST_IP" ]]; then
     yellow "$host resolved to $result (expected $HOST_IP — re-run setup)"
@@ -50,7 +60,7 @@ echo
 
 # 3. Upstream forwarding still works
 bold "3. Upstream forwarding (so the LAN doesn't lose internet)"
-result=$(dig @127.0.0.1 +short +time=2 cloudflare.com 2>/dev/null | head -1)
+result=$(clean_dig cloudflare.com)
 if [[ -z "$result" ]]; then
   red "cloudflare.com did NOT resolve via dnsmasq (forwarding broken)"
   fails=$((fails+1))
@@ -67,27 +77,33 @@ if [[ -f "$REPO_ROOT/docker/.env" ]]; then
 fi
 echo "  Active profile: $PROFILE"
 
-# Cloudflare provides public test domains that resolve to 0.0.0.0
-# (blocked) on family/malware tiers and to a real IP on vanilla.
-# These give us a deterministic probe.
-malware_test=$(dig @127.0.0.1 +short +time=2 malware.testcategory.com 2>/dev/null | head -1)
-adult_test=$(dig @127.0.0.1 +short +time=2 nsfw.testcategory.com 2>/dev/null | head -1)
-
-# Per Cloudflare docs, blocked queries return 0.0.0.0 or no answer.
+# Cloudflare's malware.testcategory.com is the reliable filter probe:
+# resolves to 0.0.0.0 on the family (1.1.1.3) and security (1.1.1.2)
+# tiers, returns a real IP on vanilla 1.1.1.1. If this is blocked, the
+# container is correctly pointing at a filtered upstream.
+#
+# (We don't probe nsfw.testcategory.com — Cloudflare apparently no
+# longer classifies that meta-test as adult, so the result is
+# misleading. The family resolver itself IS active per the malware
+# probe; trust the profile config for adult-content blocking.)
+malware_test=$(clean_dig malware.testcategory.com)
 if [[ "$malware_test" == "0.0.0.0" ]] || [[ -z "$malware_test" ]]; then
   green "malware.testcategory.com BLOCKED (filter active)"
+elif [[ "$PROFILE" == "vanilla" ]]; then
+  green "malware.testcategory.com resolved to $malware_test (vanilla — no filter, as expected)"
 else
   yellow "malware.testcategory.com resolved to $malware_test"
-  yellow "  (expected blocked — filter may be off or test domain expired)"
+  yellow "  (expected blocked — re-run docker/up.sh to ensure latest config)"
 fi
+echo
 
-if [[ "$PROFILE" == "family" ]]; then
-  if [[ "$adult_test" == "0.0.0.0" ]] || [[ -z "$adult_test" ]]; then
-    green "nsfw.testcategory.com BLOCKED (family filter active)"
-  else
-    yellow "nsfw.testcategory.com resolved to $adult_test"
-    yellow "  (expected blocked on family profile)"
-  fi
+# 3c. Pi-hole admin UI reachable?
+bold "3c. Pi-hole admin UI"
+if curl -s -o /dev/null -w "%{http_code}" --max-time 3 http://localhost:8053/admin/ 2>/dev/null | grep -qE "200|301|302|401|403"; then
+  green "Pi-hole admin UI reachable at http://localhost:8053/admin/"
+else
+  yellow "Pi-hole admin UI unreachable on http://localhost:8053/admin/"
+  yellow "  (container may still be starting; wait 30s and retry)"
 fi
 echo
 

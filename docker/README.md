@@ -1,19 +1,43 @@
-# JaViSWo home network — Docker DNS + nginx
+# JaViSWo home network — Pi-hole DNS + nginx
 
-Resolve `javiswo.local` to this Mac's LAN IP **without renaming the Mac**.
-The setup runs a tiny dnsmasq container that answers DNS for the JaViSWo
-hostnames and forwards everything else upstream. Optionally, an nginx
-container terminates TLS on port 443 so the cockpit is reachable at
-`https://javiswo.local` (no port in the URL).
+Resolve `javiswo.local` to this Mac's LAN IP **without renaming the Mac**,
+block ads / malware / adult content network-wide, and (optionally) serve
+the cockpit on the standard HTTPS port 443.
+
+Pi-hole is the brain: custom DNS records for the JaViSWo aliases,
+configurable blocklists, web UI for stats and per-device controls,
+DoH/DoT upstream support, and active maintenance. The legacy
+`dnsmasq` setup was replaced because it load-balanced across Cloudflare
++ AdGuard with inconsistent blocking — Pi-hole's own blocklists work the
+same regardless of which upstream answers.
 
 ## What's here
 
 | File | Purpose |
 |------|---------|
-| `docker-compose.yml` | dnsmasq + optional nginx (use `--profile nginx`) |
-| `.env.example` | sample env — `HOST_IP` gets baked into the dnsmasq command |
-| `nginx/javiswo.conf` | nginx config the container loads; mounts the mkcert TLS material from `~/.cockpit/tls/` |
-| `up.sh` | one-shot wrapper that detects this Mac's LAN IP, writes `.env`, and runs `docker compose up -d` |
+| `docker-compose.yml` | `pihole/pihole` + optional `nginx` (use `--profile nginx`) |
+| `.env.example` | sample env — `HOST_IP`, `ROUTER_IP`, `UPSTREAM_PROFILE`, `PIHOLE_PASSWORD` |
+| `nginx/javiswo.conf` | nginx config; mounts the mkcert TLS material from `~/.cockpit/tls/` |
+| `up.sh` | one-shot wrapper: detects LAN IP, writes `.env`, generates Pi-hole custom DNS, runs `docker compose up -d` |
+| `pihole/etc-pihole/` | Pi-hole's persisted config + adlists + custom DNS (bind-mounted into the container) |
+
+## Pi-hole admin
+
+After `./up.sh`, the web UI is on `http://localhost:8053/admin/`. The
+default password is **`changeme`** — change it via `docker/.env`
+(`PIHOLE_PASSWORD=...`) then rerun `./up.sh`. The UI is bound to
+`127.0.0.1` so the LAN can't reach it; SSH-tunnel if you need remote
+access.
+
+In the UI you can:
+
+- **Group Management → Adlists** — add blocklists (StevenBlack hosts,
+  OISD, AdGuard DNS filter, nsfw.oisd.nl, etc).
+- **Group Management → Domains** — allowlist/denylist individual hosts.
+- **Settings → DNS** — change upstream resolvers (or stick with the
+  family-safe profile from `.env`).
+- **Query Log** — see exactly what each device is asking for and which
+  domains got blocked. Useful for debugging "why is X not loading?"
 
 ## Quick start
 
