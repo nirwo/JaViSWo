@@ -106,8 +106,16 @@ function existsAndFresh(path: string): boolean {
 function generateWithMkcert(dir: string, keyPath: string, certPath: string): boolean {
   const ips = lanIPs();
   const hosts = ['localhost', '127.0.0.1', '::1', ...mdnsHosts(), ...ips];
+  // mkcert -install requires sudo to add to the system keychain. We try it
+  // best-effort but don't fail if it errors — signing certs with the CA
+  // root works regardless. The user can run `mkcert -install` once
+  // manually to trust the CA on this Mac.
   try {
     execFileSync('mkcert', ['-install'], { stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch {
+    // sudo prompt missing or denied — proceed to sign anyway
+  }
+  try {
     execFileSync(
       'mkcert',
       ['-key-file', keyPath, '-cert-file', certPath, ...hosts],
@@ -115,7 +123,7 @@ function generateWithMkcert(dir: string, keyPath: string, certPath: string): boo
     );
     return existsSync(keyPath) && existsSync(certPath);
   } catch (err) {
-    console.warn('[cockpit] mkcert failed, falling back to openssl:', (err as Error).message);
+    console.warn('[cockpit] mkcert sign failed, falling back to openssl:', (err as Error).message);
     return false;
   }
 }
