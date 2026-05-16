@@ -5,6 +5,7 @@ import { Hono } from 'hono';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { z } from 'zod';
 import type { CockpitConfig } from './config.js';
+import type { JarvisAgent } from './jarvis.js';
 import type { AgentRegistry } from './registry.js';
 import type { RecentsStore } from './recents.js';
 import type { AgentSupervisor } from './supervisor.js';
@@ -50,6 +51,10 @@ const GitCommitBody = z.object({
   message: z.string().min(1),
 });
 
+const JarvisSayBody = z.object({
+  text: z.string().min(1).max(4000),
+});
+
 export function buildHttpApp(
   config: CockpitConfig,
   registry: AgentRegistry,
@@ -57,6 +62,7 @@ export function buildHttpApp(
   recents: RecentsStore,
   getClientCount: () => number = () => 0,
   previewManager?: PreviewManager,
+  jarvisAgent?: JarvisAgent,
 ): Hono {
   const app = new Hono();
 
@@ -337,6 +343,35 @@ export function buildHttpApp(
         500,
       );
     }
+  });
+
+  // ── JARVIS API (M3.3 + M3.5) ────────────────────────────────────────────
+
+  app.get('/api/jarvis/state', (c) => {
+    if (!jarvisAgent) return c.json({ error: { code: 'JARVIS_DISABLED' } }, 503);
+    const meta = registry.get(jarvisAgent.agentId);
+    return c.json({
+      agentId: jarvisAgent.agentId,
+      sessionId: meta?.sessionId ?? null,
+      turn: meta?.turn ?? 1,
+    });
+  });
+
+  app.post('/api/jarvis/say', async (c) => {
+    if (!jarvisAgent) return c.json({ error: { code: 'JARVIS_DISABLED' } }, 503);
+    const body = await c.req.json().catch(() => null);
+    const parsed = JarvisSayBody.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: { code: 'VALIDATION_ERROR', issues: parsed.error.issues } }, 400);
+    }
+    // Fire-and-forget: JARVIS's reply streams over WS to anyone subscribed
+    // to his agentId. We return 202 immediately so the overlay can render
+    // "thinking…" without holding the HTTP connection open for the whole
+    // round-trip (which may include multi-hop tool calls).
+    jarvisAgent.say(parsed.data.text).catch((err: Error) => {
+      console.warn('[cockpit] jarvis.say failed:', err.message);
+    });
+    return c.json({ ok: true, agentId: jarvisAgent.agentId }, 202);
   });
 
   app.post('/api/voice/transcribe', async (c) => {

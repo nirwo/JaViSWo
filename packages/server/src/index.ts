@@ -2,9 +2,11 @@ import { serve } from '@hono/node-server';
 import { createServer as createHttpsServer } from 'node:https';
 import { homedir, networkInterfaces } from 'node:os';
 import { join } from 'node:path';
+import type { Envelope } from '@cockpit/shared';
 import { loadConfig } from './config.js';
 import { openDb, closeDb } from './db.js';
 import { buildHttpApp } from './http.js';
+import { JarvisAgent } from './jarvis.js';
 import { AgentRegistry } from './registry.js';
 import { RecentsStore } from './recents.js';
 import { AgentSupervisor } from './supervisor.js';
@@ -24,16 +26,61 @@ db.exec(`UPDATE agents SET status = 'idle' WHERE status = 'running'`);
 
 const registry = new AgentRegistry(db, { tailCap: 5000 });
 
-let broadcast: (env: import('@cockpit/shared').Envelope) => void = () => {};
+let broadcast: (env: Envelope) => void = () => {};
 let clientCount: () => number = () => 0;
-const supervisor = new AgentSupervisor(registry, (env) => broadcast(env));
+
+// Per-agent envelope subscribers (used by JarvisAgent to follow its own
+// turn lifecycle). Plain Set fan-out — no backpressure, no buffering.
+const perAgentSubscribers = new Map<string, Set<(env: Envelope) => void>>();
+const subscribeEnvelopes = (agentId: string, handler: (env: Envelope) => void): (() => void) => {
+  let set = perAgentSubscribers.get(agentId);
+  if (!set) {
+    set = new Set();
+    perAgentSubscribers.set(agentId, set);
+  }
+  set.add(handler);
+  return () => {
+    const s = perAgentSubscribers.get(agentId);
+    if (!s) return;
+    s.delete(handler);
+    if (s.size === 0) perAgentSubscribers.delete(agentId);
+  };
+};
+
+const supervisor = new AgentSupervisor(registry, (env) => {
+  broadcast(env);
+  const subs = perAgentSubscribers.get(env.agentId);
+  if (subs) for (const fn of subs) {
+    try { fn(env); } catch { /* one subscriber's error must not break others */ }
+  }
+});
 
 const legacyRecentsPath = join(homedir(), '.cockpit', 'recents.json');
 const recents = new RecentsStore(db, 10, legacyRecentsPath);
 
 const previewManager = new PreviewManager();
 
-const app = buildHttpApp(config, registry, supervisor, recents, () => clientCount(), previewManager);
+// JARVIS orchestrator — singleton, persisted across restarts (M3.3 + M3.5).
+// Construction is idempotent: if a jarvis_sessions row exists, the persisted
+// agentId is reused and his Claude CLI session resumes via --resume.
+const jarvisAgent = new JarvisAgent({
+  db,
+  registry,
+  supervisor,
+  recents,
+  roots: config.roots,
+  subscribeEnvelopes,
+});
+
+const app = buildHttpApp(
+  config,
+  registry,
+  supervisor,
+  recents,
+  () => clientCount(),
+  previewManager,
+  jarvisAgent,
+);
 
 const httpServer = serve(
   { fetch: app.fetch, hostname: config.host, port: config.port },
@@ -101,6 +148,7 @@ initFileWatch(ws.broadcastAll);
 function shutdown() {
   previewManager.shutdown();
   stopFileWatch();
+  jarvisAgent.shutdown();
   closeDb();
   try { httpServer.close(); } catch { /* already closed */ }
   if (httpsServer) try { httpsServer.close(); } catch { /* already closed */ }
