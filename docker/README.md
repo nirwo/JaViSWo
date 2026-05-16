@@ -64,14 +64,50 @@ warning-free browsing, install that CA on each device:
 ## Verify
 
 ```bash
-# from the Mac
-dig @127.0.0.1 javiswo.local +short
-# → should print the Mac's LAN IP
+# Full health check (recommended)
+./scripts/dns-health.sh
 
-# from another device (after setting DNS to the Mac's IP)
-ping javiswo.local
-# → should resolve and ping the Mac
+# Or manual:
+dig @127.0.0.1 javiswo.local +short    # → Mac's LAN IP
+dig @127.0.0.1 cloudflare.com +short   # → real IP (upstream alive)
 ```
+
+## Safety: won't this break my LAN?
+
+Putting the Mac in the DNS path is a real concern. The setup is hardened
+against the five obvious ways it could break your network:
+
+| Risk | Mitigation in this setup |
+|------|--------------------------|
+| **Mac sleeps or shuts down** | Always configure a **secondary DNS** (1.1.1.1 or your router) on each device. macOS/iOS race servers and fall back automatically. Auto-start Docker Desktop on login so the container comes back with the Mac. |
+| **Docker container crashes** | `restart: unless-stopped` in compose + healthcheck that queries dnsmasq every 30s; Docker restarts the container if it stops answering. |
+| **Router-local DNS records (nas.lan, etc) lost** | dnsmasq forwards unknown queries to **your router first**, then to public DNS. Whatever was in your router's local DNS table keeps working. |
+| **Mac's LAN IP changes** | Reserve the Mac's IP in your router's DHCP (pinned by MAC address). Setup script prints this as a checklist item. |
+| **The host Mac itself depending on Docker for DNS** | setup-network.sh installs `/etc/resolver/javiswo.local`, `/etc/resolver/cockpit.local`, `/etc/resolver/jarvis.local` — these route ONLY those domains to dnsmasq. Everything else on the Mac uses its normal DNS path, completely independent of the Docker container. |
+
+The mac's per-domain resolver is the most important safeguard — it
+means the host Mac (running the cockpit, doing development, etc) can't
+break its own DNS even if the Docker container goes haywire.
+
+### What if I don't want the Mac to be DNS for the whole LAN?
+
+You don't have to. Two narrower options:
+
+1. **Just this Mac** — install the resolver files (`/etc/resolver/`) and
+   skip the per-device DNS setup on iPhone / others. Only this Mac can
+   reach `javiswo.local`; iPhone needs to use the LAN IP
+   (`https://10.x.x.x:8788`).
+
+2. **Just this Mac + iPhone** — install resolvers on Mac, manually set
+   primary DNS to this Mac's IP + secondary 1.1.1.1 on iPhone only.
+   Other devices on the LAN are untouched. Best balance of "JARVIS
+   works on iPhone" vs "don't put Mac in everyone's critical path."
+
+3. **Whole LAN** — set router's primary DNS to this Mac, secondary to
+   1.1.1.1. Every device gets `javiswo.local` automatically. Highest
+   convenience, highest blast radius if Mac is down.
+
+Pick the smallest scope that meets your needs.
 
 ## Teardown
 

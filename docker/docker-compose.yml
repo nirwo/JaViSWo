@@ -30,19 +30,34 @@ services:
     environment:
       HTTP_USER: admin
       HTTP_PASS: ${DNS_ADMIN_PASS:-changeme}
+    # Forwarding order matters: try the LAN router first (so router-local
+    # DNS records like nas.lan keep working), then public DNS as fallback.
+    # ${ROUTER_IP} comes from .env; setup-network.sh auto-detects it from
+    # the default route.
     command: >
       --log-facility=-
       --address=/javiswo.local/${HOST_IP}
       --address=/cockpit.local/${HOST_IP}
       --address=/jarvis.local/${HOST_IP}
+      --server=${ROUTER_IP:-1.1.1.1}
       --server=1.1.1.1
       --server=8.8.8.8
       --no-resolv
       --no-hosts
       --domain-needed
       --bogus-priv
+      --cache-size=1000
     cap_add:
       - NET_ADMIN
+    healthcheck:
+      # dnsmasq inside the container — query for one of our anchors. If
+      # it doesn't answer in 5s, the container is unhealthy and Docker
+      # restarts it.
+      test: ["CMD-SHELL", "nslookup javiswo.local 127.0.0.1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # Optional — bring up with `--profile nginx`. Terminates TLS on 443
   # using the mkcert-signed cert from ~/.cockpit/tls/, proxies everything

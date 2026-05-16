@@ -12,10 +12,11 @@ cd "$(dirname "$0")"
 if [[ ! -f .env ]]; then
   cp .env.example .env
   HOST_IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo '127.0.0.1')"
-  # Use a delimiter unlikely to appear in IPs
+  ROUTER_IP="$(netstat -nr 2>/dev/null | awk '/^default/ && $2 ~ /^[0-9]+\./ {print $2; exit}' || echo '1.1.1.1')"
   sed -i.bak "s|^HOST_IP=.*|HOST_IP=${HOST_IP}|" .env
+  sed -i.bak "s|^ROUTER_IP=.*|ROUTER_IP=${ROUTER_IP}|" .env
   rm -f .env.bak
-  echo "Wrote .env with HOST_IP=${HOST_IP}"
+  echo "Wrote .env with HOST_IP=${HOST_IP} ROUTER_IP=${ROUTER_IP}"
 fi
 
 if ! docker info >/dev/null 2>&1; then
