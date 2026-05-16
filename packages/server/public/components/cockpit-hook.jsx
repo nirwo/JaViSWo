@@ -87,6 +87,31 @@ function CockpitProvider({ children }) {
     try { localStorage.setItem('cockpit:tts', v ? '1' : '0'); } catch {}
   }, []);
 
+  // JARVIS mode — voice-first orchestrator overlay (M3.2)
+  const [jarvisEnabled, setJarvisEnabledState] = React.useState(
+    () => localStorage.getItem('cockpit:jarvis') === '1',
+  );
+  const [jarvisState, setJarvisState] = React.useState('idle');
+  // 'idle' | 'wake' | 'listening' | 'processing' | 'done' | 'error'
+  const [jarvisTranscript, setJarvisTranscript] = React.useState('');
+  const [jarvisError, setJarvisError] = React.useState(null);
+
+  const setJarvisEnabled = React.useCallback((v) => {
+    setJarvisEnabledState(v);
+    if (!v) {
+      setJarvisState('idle');
+      setJarvisTranscript('');
+      setJarvisError(null);
+    }
+    try { localStorage.setItem('cockpit:jarvis', v ? '1' : '0'); } catch {}
+  }, []);
+
+  const dismissJarvis = React.useCallback(() => {
+    setJarvisState('idle');
+    setJarvisTranscript('');
+    setJarvisError(null);
+  }, []);
+
   // Hide tool work — collapses tool/thinking chips into micro-pills
   const [hideToolWork, setHideToolWork] = React.useState(
     () => localStorage.getItem('cockpit:hide-tool-work') === '1',
@@ -542,6 +567,15 @@ function CockpitProvider({ children }) {
     refreshProjectData,
     selectedModel,
     setSelectedModel,
+    jarvisEnabled,
+    setJarvisEnabled,
+    jarvisState,
+    setJarvisState,
+    jarvisTranscript,
+    setJarvisTranscript,
+    jarvisError,
+    setJarvisError,
+    dismissJarvis,
     spawn,
     continueAgent,
     selectAgent,

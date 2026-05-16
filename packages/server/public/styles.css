@@ -1779,3 +1779,127 @@ body.twk-flash .twk-panel { animation: twkFlash 1.1s ease-out 1; }
 }
 .commit-input:focus { outline: none; border-color: var(--violet-300); }
 .commit-input:disabled { opacity: 0.5; }
+
+/* ── M3.2: JARVIS overlay ─────────────────────────────────────────────── */
+
+.jarvis-toggle.active {
+  color: var(--violet-200);
+  background: rgba(124,58,237,0.18);
+  box-shadow: 0 0 0 1px rgba(167,139,250,0.45), 0 0 18px rgba(167,139,250,0.35);
+  animation: jarvisToggleBreathe 2.8s ease-in-out infinite;
+}
+@keyframes jarvisToggleBreathe {
+  0%,100% { box-shadow: 0 0 0 1px rgba(167,139,250,0.45), 0 0 18px rgba(167,139,250,0.35); }
+  50%     { box-shadow: 0 0 0 1px rgba(167,139,250,0.7),  0 0 26px rgba(167,139,250,0.6); }
+}
+
+.jarvis-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  display: grid; place-items: center;
+  pointer-events: auto;
+}
+.jarvis-overlay-bg {
+  position: absolute; inset: 0;
+  background: rgba(6, 4, 16, 0.78);
+  backdrop-filter: blur(22px) saturate(140%);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  animation: jarvisFadeIn 220ms ease-out;
+}
+@keyframes jarvisFadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.jarvis-overlay-inner {
+  position: relative;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 28px;
+  max-width: 720px;
+  padding: 48px 32px;
+  text-align: center;
+}
+
+/* Orb — radial gradient with concentric pulse rings */
+.jarvis-orb {
+  position: relative;
+  width: 220px; height: 220px;
+  display: grid; place-items: center;
+}
+.jarvis-orb-core {
+  position: absolute; inset: 38%;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%,
+    #ffffff 0%,
+    #ddd6fe 18%,
+    #a78bfa 45%,
+    #7c3aed 70%,
+    #1e1b4b 100%);
+  box-shadow:
+    0 0 40px rgba(167,139,250,0.7),
+    0 0 80px rgba(124,58,237,0.5),
+    inset 0 0 24px rgba(255,255,255,0.4);
+  animation: jarvisCorePulse 3.2s ease-in-out infinite;
+}
+.jarvis-orb-ring {
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(167,139,250,0.35);
+  background: radial-gradient(circle,
+    rgba(167,139,250,0.15) 0%,
+    rgba(124,58,237,0.08) 40%,
+    transparent 70%);
+  animation: jarvisRingPulse 3.2s ease-in-out infinite;
+}
+@keyframes jarvisCorePulse {
+  0%, 100% { transform: scale(1.0); filter: hue-rotate(0deg); }
+  50%      { transform: scale(1.08); filter: hue-rotate(15deg); }
+}
+@keyframes jarvisRingPulse {
+  0%, 100% { transform: scale(1.0); opacity: 0.85; }
+  50%      { transform: scale(1.15); opacity: 0.5; }
+}
+
+/* Speed variants driven by state */
+.jarvis-orb.pulse-fast .jarvis-orb-core { animation-duration: 1.4s; }
+.jarvis-orb.pulse-fast .jarvis-orb-ring { animation-duration: 1.4s; }
+.jarvis-orb.pulse-burst .jarvis-orb-core { animation-duration: 0.6s; }
+.jarvis-orb.pulse-burst .jarvis-orb-ring { animation-duration: 0.6s; }
+.jarvis-orb.pulse-slow .jarvis-orb-core { animation-duration: 5.0s; }
+.jarvis-orb.pulse-slow .jarvis-orb-ring { animation-duration: 5.0s; }
+.jarvis-orb.pulse-soft .jarvis-orb-core { animation-duration: 4.0s; opacity: 0.85; }
+.jarvis-orb.pulse-soft .jarvis-orb-ring { animation-duration: 4.0s; opacity: 0.65; }
+
+/* Text */
+.jarvis-headline {
+  font-family: var(--f-display, var(--f-sans));
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--violet-100, #ede9fe);
+  text-shadow: 0 0 18px rgba(167,139,250,0.4);
+}
+.jarvis-transcript {
+  font-family: var(--f-mono);
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--text);
+  max-width: 600px;
+  padding: 14px 20px;
+  background: rgba(124,58,237,0.10);
+  border: 1px solid rgba(167,139,250,0.28);
+  border-radius: 12px;
+  box-shadow: 0 0 24px rgba(124,58,237,0.18) inset;
+  white-space: pre-wrap;
+  word-break: break-word;
+  animation: jarvisTextFade 280ms ease-out;
+}
+@keyframes jarvisTextFade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.jarvis-transcript.jarvis-error {
+  background: rgba(244,63,94,0.08);
+  border-color: rgba(244,63,94,0.35);
+  color: var(--danger, #f43f5e);
+}
+.jarvis-hint {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+}

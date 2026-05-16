@@ -162,5 +162,6 @@ ReactDOM.createRoot(document.getElementById("root")).render(
   <CockpitProvider>
     <App/>
     <FolderPicker/>
+    <JarvisOverlay/>
   </CockpitProvider>
 );

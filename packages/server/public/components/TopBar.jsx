@@ -50,6 +50,7 @@ const TopBar = () => {
   const {
     agents, currentAgentId, selectAgent, closeAgent,
     totalTokens, totalCost, draftProject, openPicker, projectDesign,
+    jarvisEnabled, setJarvisEnabled,
   } = useCockpit();
 
   const [historyOpen, setHistoryOpen] = React.useState(false);
@@ -189,6 +190,13 @@ const TopBar = () => {
             />
           )}
         </div>
+        <button
+          className={`icon-btn jarvis-toggle ${jarvisEnabled ? 'active' : ''}`}
+          title={jarvisEnabled ? 'JARVIS listening — click to disable' : 'Enable JARVIS (voice orchestrator)'}
+          onClick={() => setJarvisEnabled(!jarvisEnabled)}
+        >
+          <Icon name="mic" size={15}/>
+        </button>
         <button
           className="icon-btn"
           title="Settings"
