@@ -692,10 +692,13 @@ function CockpitProvider({ children }) {
     const runningJarvisWorkers = [];
     for (const a of agentsRef.current.values()) {
       if (a.spawnedBy === 'jarvis' && a.status === 'running') {
+        // Derive last user prompt from the message history so JARVIS gets
+        // a meaningful task description, not just an id. Fall back to slug.
+        const lastUser = [...a.messages].reverse().find(m => m.kind === 'user');
         runningJarvisWorkers.push({
           id: a.id,
           slug: a.slug,
-          lastPrompt: a.lastPrompt ?? '',
+          lastPrompt: lastUser?.text ?? a.slug ?? '',
         });
       }
     }
