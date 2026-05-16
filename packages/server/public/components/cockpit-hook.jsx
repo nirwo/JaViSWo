@@ -102,6 +102,7 @@ function CockpitProvider({ children }) {
       try { a.pause(); a.src = ''; } catch {}
       currentAudioRef.current = null;
     }
+    setJarvisSpeaking(false);
     try { speechSynthesis.cancel(); } catch {}
   }, []);
 
@@ -151,6 +152,10 @@ function CockpitProvider({ children }) {
   const [jarvisAgentId, setJarvisAgentId] = React.useState(null);
   const [jarvisReply, setJarvisReply] = React.useState('');
   const [jarvisThinking, setJarvisThinking] = React.useState(false);
+  // M3.7: true while JARVIS's audio is actively playing. The overlay
+  // watches this to auto-re-arm the mic after he finishes (multi-turn
+  // conversation).
+  const [jarvisSpeaking, setJarvisSpeaking] = React.useState(false);
 
   // Hide tool work — collapses tool/thinking chips into micro-pills
   const [hideToolWork, setHideToolWork] = React.useState(
@@ -543,28 +548,38 @@ function CockpitProvider({ children }) {
     setJarvisThinking(a.status === 'running');
   }, [agents, jarvisAgentId]);
 
-  // M3.4 — TTS narration of JARVIS's own replies. Speaks whenever jarvisReply
-  // changes meaningfully. We only utter the *new* tail (delta since last
-  // spoken text) so the user doesn't re-hear the whole sentence as JARVIS
-  // streams. A 60ms coalescing window prevents micro-stutter from tiny
-  // partial-text deltas.
+  // M3.7 — track who initiated the current JARVIS turn. Only the
+  // initiating device plays audio; other connected clients receive
+  // the envelope via WS but skip TTS so multi-device users don't
+  // hear stereo JARVIS across the room. lastInitiatedAtRef gets
+  // stamped by sayToJarvis().
+  const lastInitiatedAtRef = React.useRef(0);
+
+  // M3.4 / M3.7 — TTS narration of JARVIS's own replies. FIRES ONCE
+  // PER TURN, at the moment JARVIS finishes thinking — NOT on every
+  // partial_text delta (that was causing the "duplicate voice" stutter
+  // where 5+ ElevenLabs syntheses raced for the same reply, each
+  // cancelling the previous mid-playback).
   const lastSpokenRef = React.useRef('');
   const lastSpeakAtRef = React.useRef(0);
   const speakTimerRef = React.useRef(null);
+  const wasThinkingRef = React.useRef(false);
   React.useEffect(() => {
+    // Did JARVIS just finish this turn? (running → completed)
+    const justFinished = wasThinkingRef.current && !jarvisThinking;
+    wasThinkingRef.current = jarvisThinking;
+    if (!justFinished) return undefined;
     if (!jarvisVoice) return undefined;
     if (!jarvisReply) return undefined;
-    // Compute the delta — what's new since we last spoke.
-    const prev = lastSpokenRef.current;
-    let delta = '';
-    if (jarvisReply.startsWith(prev)) {
-      delta = jarvisReply.slice(prev.length).trim();
-    } else {
-      // Reply was rewritten (e.g. partial_text → text replace) — speak
-      // only the trailing fragment we haven't heard yet, conservatively.
-      delta = jarvisReply.trim();
-    }
+    // Origin gate: only the device that initiated this turn plays
+    // audio. lastInitiatedAtRef gets stamped by sayToJarvis(). Other
+    // connected clients receive the same WS envelope but their ref is
+    // stale (>30s ago) so they skip.
+    if (Date.now() - lastInitiatedAtRef.current > 30_000) return undefined;
+    // Speak the whole reply (not deltas) — single utterance per turn.
+    const delta = jarvisReply.trim();
     if (!delta) return undefined;
+    lastSpokenRef.current = jarvisReply;
     // Coalesce: if the last utterance fired <60ms ago, debounce by 60ms so
     // bursts of partial_text deltas become a single utterance.
     const now = Date.now();
@@ -615,17 +630,24 @@ function CockpitProvider({ children }) {
         audio.preload = 'auto';
         audio.onended = () => {
           URL.revokeObjectURL(url);
-          if (currentAudioRef.current === audio) currentAudioRef.current = null;
+          if (currentAudioRef.current === audio) {
+            currentAudioRef.current = null;
+            setJarvisSpeaking(false);
+          }
         };
         audio.onerror = () => {
           URL.revokeObjectURL(url);
-          if (currentAudioRef.current === audio) currentAudioRef.current = null;
+          if (currentAudioRef.current === audio) {
+            currentAudioRef.current = null;
+            setJarvisSpeaking(false);
+          }
         };
         // Cancel any older clip before starting the next so JARVIS doesn't
         // overlap himself when partials arrive faster than playback.
         const prev = currentAudioRef.current;
         if (prev) { try { prev.pause(); prev.src = ''; } catch {} }
         currentAudioRef.current = audio;
+        setJarvisSpeaking(true);
         await audio.play();
       } catch {
         speakViaBrowser();
@@ -643,7 +665,9 @@ function CockpitProvider({ children }) {
     }
     fire();
     return undefined;
-  }, [jarvisReply, jarvisVoice]);
+    // Depend on jarvisThinking (the "just finished" trigger) plus
+    // jarvisReply (the content) plus jarvisVoice (the toggle).
+  }, [jarvisThinking, jarvisReply, jarvisVoice]);
 
   // Reset the last-spoken cursor whenever JARVIS starts a fresh reply (the
   // overlay clears jarvisReply on a new turn) so the next reply isn't
@@ -747,6 +771,11 @@ function CockpitProvider({ children }) {
 
   const sayToJarvis = React.useCallback(async (text) => {
     if (!text || !text.trim()) return { ok: false, reason: 'empty' };
+    // M3.7 — stamp origin so only THIS client plays audio for the
+    // upcoming JARVIS reply. Other connected clients (e.g. the Mac
+    // when you're using iPhone) receive the same envelope via WS but
+    // skip TTS because their lastInitiatedAtRef is stale.
+    lastInitiatedAtRef.current = Date.now();
     setJarvisReply('');
     setJarvisThinking(true);
     // M3.4 — collect JARVIS-spawned workers that are still running so JARVIS
@@ -924,7 +953,9 @@ function CockpitProvider({ children }) {
     setJarvisInterimText,
     jarvisAgentId,
     jarvisReply,
+    setJarvisReply,
     jarvisThinking,
+    jarvisSpeaking,
     sayToJarvis,
     spawn,
     continueAgent,

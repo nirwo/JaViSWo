@@ -11,10 +11,14 @@
 // transcript to verify Chrome is actually hearing them.
 
 const JARVIS_WAKE_REGEX = /\b(jarvis|javis|jervis|jaffis|javiswo|chervas)\b/i;
-const JARVIS_DISMISS_REGEX = /\b(thanks jarvis|that('?s| is) all|dismiss)\b/i;
+const JARVIS_DISMISS_REGEX = /\b(thanks jarvis|that('?s| is) all|dismiss|goodbye|bye jarvis)\b/i;
 const SILENCE_RMS = 0.018;
 const SILENCE_MS = 1400;
 const MAX_RECORD_MS = 12_000;
+// M3.7 multi-turn: between JARVIS replies and the user's next utterance,
+// give a shorter window to start speaking — keeps the conversation
+// snappy without trapping the mic on if the user has stopped.
+const FOLLOWUP_MAX_RECORD_MS = 8_000;
 
 function hasWakeWordSupport() {
   return typeof window !== 'undefined' && (
@@ -96,7 +100,7 @@ const JarvisOverlay = () => {
     jarvisTranscript, setJarvisTranscript,
     jarvisError, setJarvisError, dismissJarvis,
     setJarvisListenerStatus, setJarvisInterimText,
-    sayToJarvis, jarvisReply, jarvisThinking,
+    sayToJarvis, jarvisReply, setJarvisReply, jarvisThinking, jarvisSpeaking,
   } = useCockpit();
 
   // Once the wake recognizer hands us a finalized transcript ('done' state)
@@ -123,6 +127,28 @@ const JarvisOverlay = () => {
     if (jarvisReply) setJarvisState('jarvis-done');
   }, [jarvisState, jarvisThinking, jarvisReply, setJarvisState]);
 
+  // M3.7 — multi-turn conversation. After JARVIS finishes speaking
+  // (audio playback ends), automatically re-arm the mic for the user's
+  // next utterance. Loop continues until the user says a dismiss
+  // phrase, hits Escape, or stays silent for FOLLOWUP_MAX_RECORD_MS.
+  const wasSpeakingRef = React.useRef(false);
+  React.useEffect(() => {
+    const justFinishedSpeaking = wasSpeakingRef.current && !jarvisSpeaking;
+    wasSpeakingRef.current = jarvisSpeaking;
+    if (!justFinishedSpeaking) return undefined;
+    if (jarvisState !== 'jarvis-done') return undefined;
+    // Brief grace period before re-arming so the user has a beat to
+    // process what JARVIS just said.
+    const t = setTimeout(() => {
+      if (stateRef.current === 'jarvis-done') {
+        // followUp flag tells startRecording to use the shorter
+        // silence window + bail silently if no speech detected.
+        startRecording(true);
+      }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [jarvisSpeaking, jarvisState]);
+
   const recognizerRef = React.useRef(null);
   const recorderRef = React.useRef(null);
   const audioCtxRef = React.useRef(null);
@@ -140,10 +166,16 @@ const JarvisOverlay = () => {
     if (r && r.state !== 'inactive') r.stop();
   }, []);
 
-  const startRecording = React.useCallback(async () => {
+  const startRecording = React.useCallback(async (followUp = false) => {
     setJarvisState('listening');
     setJarvisTranscript('');
     stoppingRef.current = false;
+    const maxRecordMs = followUp ? FOLLOWUP_MAX_RECORD_MS : MAX_RECORD_MS;
+    // Track whether we ever crossed the speech threshold during this
+    // recording. If not (user stayed silent during a follow-up turn),
+    // we exit the conversation cleanly to idle instead of sending a
+    // blank transcript to JARVIS.
+    let speechDetected = false;
 
     let stream;
     try {
@@ -174,6 +206,14 @@ const JarvisOverlay = () => {
       try { audioCtx.close(); } catch {}
       audioCtxRef.current = null;
 
+      // M3.7 multi-turn: in follow-up mode, if user never spoke, end
+      // the conversation cleanly without sending blank audio to STT.
+      if (followUp && !speechDetected) {
+        setJarvisState('idle');
+        setJarvisTranscript('');
+        setJarvisReply('');
+        return;
+      }
       if (chunks.length === 0) {
         setJarvisState('idle');
         return;
@@ -186,8 +226,17 @@ const JarvisOverlay = () => {
         const res = await fetch('/api/voice/transcribe', { method: 'POST', body: fd });
         const body = await res.json();
         if (body.ok && body.text) {
+          // M3.7 — if user said "thanks JARVIS"/etc on a follow-up turn,
+          // end the conversation rather than sending it to JARVIS.
+          if (JARVIS_DISMISS_REGEX.test(body.text)) {
+            dismissJarvis();
+            return;
+          }
           setJarvisTranscript(body.text);
           setJarvisState('done');
+        } else if (followUp) {
+          // Empty transcript on a follow-up = stayed silent, exit cleanly.
+          setJarvisState('idle');
         } else {
           setJarvisError(body.error?.detail ?? body.error?.code ?? 'transcription_failed');
           setJarvisState('error');
@@ -209,10 +258,16 @@ const JarvisOverlay = () => {
         sum += v * v;
       }
       const rms = Math.sqrt(sum / data.length);
-      if (rms > SILENCE_RMS) lastSpeechRef.current = Date.now();
+      if (rms > SILENCE_RMS) {
+        lastSpeechRef.current = Date.now();
+        speechDetected = true;
+      }
       const idleFor = Date.now() - lastSpeechRef.current;
       const totalFor = Date.now() - (recorder.startedAt ?? Date.now());
-      if (idleFor > SILENCE_MS || totalFor > MAX_RECORD_MS) {
+      // In follow-up mode, exit fast if the user clearly isn't going
+      // to speak (no speech detected within the first 4s of the window).
+      const earlyBail = followUp && !speechDetected && totalFor > 4_000;
+      if (idleFor > SILENCE_MS || totalFor > maxRecordMs || earlyBail) {
         if (recorder.state !== 'inactive') recorder.stop();
         return;
       }
@@ -220,7 +275,7 @@ const JarvisOverlay = () => {
     };
     recorder.startedAt = Date.now();
     requestAnimationFrame(tick);
-  }, [setJarvisError, setJarvisState, setJarvisTranscript, setJarvisListenerStatus]);
+  }, [setJarvisError, setJarvisState, setJarvisTranscript, setJarvisListenerStatus, setJarvisReply, dismissJarvis]);
 
   // Wake-word recognizer lifecycle. Mount/unmount when jarvisEnabled flips.
   React.useEffect(() => {
