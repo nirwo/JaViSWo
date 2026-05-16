@@ -266,15 +266,20 @@ const LeftRail = () => {
     projectTree, projectGit, projectDesign, draftProject, refreshProjectData,
   } = useCockpit();
 
-  const sessions = [...agents.values()].map(a => ({
-    id: a.id,
-    title: a.slug,
-    state: a.status === 'running' ? 'doing'
-      : a.status === 'errored' ? 'error'
-      : a.status === 'completed' ? 'done'
-      : 'idle',
-    meta: a.tokens > 0 ? `${a.tokens.toLocaleString()} tk` : '—',
-  }));
+  const sessions = [...agents.values()]
+    // Hide the JARVIS singleton from the user-facing list — he's an internal
+    // orchestrator that lives in the overlay, not a chat session.
+    .filter(a => a.slug !== 'JARVIS orchestrato…' && a.slug !== 'JARVIS orchestrator')
+    .map(a => ({
+      id: a.id,
+      title: a.slug,
+      spawnedBy: a.spawnedBy ?? null,
+      state: a.status === 'running' ? 'doing'
+        : a.status === 'errored' ? 'error'
+        : a.status === 'completed' ? 'done'
+        : 'idle',
+      meta: a.tokens > 0 ? `${a.tokens.toLocaleString()} tk` : '—',
+    }));
 
   return (
     <aside className="rail left hairline-r">
@@ -305,9 +310,26 @@ const LeftRail = () => {
               key={s.id}
               className={`session ${currentAgentId === s.id ? 'active' : ''}`}
               onClick={() => selectAgent(s.id)}
+              title={s.spawnedBy === 'jarvis' ? 'dispatched by JARVIS' : undefined}
             >
               <span className={`session-pulse ${s.state === 'doing' ? '' : s.state}`}/>
               <span className="session-title">{s.title}</span>
+              {s.spawnedBy === 'jarvis' && (
+                <span
+                  aria-label="dispatched by JARVIS"
+                  style={{
+                    fontSize: 9,
+                    padding: '1px 4px',
+                    borderRadius: 4,
+                    background: 'rgba(167,139,250,0.18)',
+                    color: 'var(--violet-300, #c4b5fd)',
+                    fontFamily: 'var(--f-mono)',
+                    letterSpacing: '0.04em',
+                  }}
+                >
+                  JARVIS
+                </span>
+              )}
               <span className="session-meta">{s.meta}</span>
             </div>
           ))}

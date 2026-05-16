@@ -67,7 +67,10 @@ const TopBar = () => {
     return () => document.removeEventListener('mousedown', close);
   }, [historyOpen]);
 
-  const list = [...agents.values()];
+  // Hide the JARVIS singleton from the agent tab strip — he lives in the
+  // overlay, not the normal chat workflow. Identified by his synthetic
+  // firstPrompt slug 'JARVIS orchestrator'.
+  const list = [...agents.values()].filter(a => a.slug !== 'JARVIS orchestrato…' && a.slug !== 'JARVIS orchestrator');
 
   const onNew = () => {
     // Deselect — user is starting a new agent from the composer
@@ -117,9 +120,26 @@ const TopBar = () => {
                 key={a.id}
                 className={`tab ${currentAgentId === a.id ? 'active' : ''}`}
                 onClick={() => selectAgent(a.id)}
-                title={`Switch to ${a.slug}${i < 9 ? ` (⌘${i + 1})` : ''}`}
+                title={`Switch to ${a.slug}${i < 9 ? ` (⌘${i + 1})` : ''}${a.spawnedBy === 'jarvis' ? ' (dispatched by JARVIS)' : ''}`}
               >
                 <span className={`dot ${dotClass}`}/>
+                {a.spawnedBy === 'jarvis' && (
+                  <span
+                    aria-label="dispatched by JARVIS"
+                    title="dispatched by JARVIS"
+                    style={{
+                      fontSize: 10,
+                      padding: '1px 4px',
+                      borderRadius: 4,
+                      background: 'rgba(167,139,250,0.18)',
+                      color: 'var(--violet-300, #c4b5fd)',
+                      fontFamily: 'var(--f-mono)',
+                      letterSpacing: '0.04em',
+                    }}
+                  >
+                    JARVIS
+                  </span>
+                )}
                 <span>{a.slug}</span>
                 {i < 9 && <span className="tab-kbd">{i + 1}</span>}
                 <span

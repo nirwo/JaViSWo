@@ -35,8 +35,10 @@ const JarvisOrb = ({ state }) => {
   const pulseClass =
     state === 'listening' ? 'jarvis-orb pulse-fast'
     : state === 'processing' ? 'jarvis-orb pulse-slow'
+    : state === 'jarvis-thinking' ? 'jarvis-orb pulse-slow'
     : state === 'wake' ? 'jarvis-orb pulse-burst'
     : state === 'done' ? 'jarvis-orb pulse-soft'
+    : state === 'jarvis-done' ? 'jarvis-orb pulse-soft'
     : 'jarvis-orb';
   return (
     <div className={pulseClass} aria-hidden="true">
@@ -94,7 +96,32 @@ const JarvisOverlay = () => {
     jarvisTranscript, setJarvisTranscript,
     jarvisError, setJarvisError, dismissJarvis,
     setJarvisListenerStatus, setJarvisInterimText,
+    sayToJarvis, jarvisReply, jarvisThinking,
   } = useCockpit();
+
+  // Once the wake recognizer hands us a finalized transcript ('done' state)
+  // we POST it to JARVIS and switch to 'jarvis-thinking' so the overlay can
+  // render his reply as it streams over WS. The overlay stays open until
+  // dismissed manually.
+  React.useEffect(() => {
+    if (jarvisState !== 'done') return;
+    if (!jarvisTranscript || !jarvisTranscript.trim()) return;
+    setJarvisState('jarvis-thinking');
+    sayToJarvis(jarvisTranscript).catch(() => {
+      // sayToJarvis already updates jarvisThinking; surface a generic error
+      // in the overlay so the user sees something went wrong.
+      setJarvisError('Failed to reach JARVIS — check the server.');
+      setJarvisState('error');
+    });
+  }, [jarvisState, jarvisTranscript, sayToJarvis, setJarvisState, setJarvisError]);
+
+  // When JARVIS finishes thinking (his agent's status flips from running to
+  // completed), surface a 'jarvis-done' state so the orb stops pulsing.
+  React.useEffect(() => {
+    if (jarvisState !== 'jarvis-thinking') return;
+    if (jarvisThinking) return;
+    if (jarvisReply) setJarvisState('jarvis-done');
+  }, [jarvisState, jarvisThinking, jarvisReply, setJarvisState]);
 
   const recognizerRef = React.useRef(null);
   const recorderRef = React.useRef(null);
@@ -340,11 +367,16 @@ const JarvisOverlay = () => {
               {jarvisState === 'listening' && 'Go ahead, sir.'}
               {jarvisState === 'processing' && 'Thinking…'}
               {jarvisState === 'done' && 'I heard:'}
+              {jarvisState === 'jarvis-thinking' && 'JARVIS is thinking…'}
+              {jarvisState === 'jarvis-done' && 'JARVIS:'}
               {jarvisState === 'error' && 'Sorry, sir — something went wrong.'}
             </div>
-            {jarvisTranscript && (
-              <div className="jarvis-transcript">{jarvisTranscript}</div>
-            )}
+            {(jarvisState === 'jarvis-thinking' || jarvisState === 'jarvis-done')
+              ? (jarvisReply
+                  ? <div className="jarvis-transcript">{jarvisReply}</div>
+                  : jarvisTranscript && <div className="jarvis-transcript" style={{ opacity: 0.6 }}>You said: {jarvisTranscript}</div>)
+              : jarvisTranscript && <div className="jarvis-transcript">{jarvisTranscript}</div>
+            }
             {jarvisError && (
               <div className="jarvis-transcript jarvis-error">{jarvisError}</div>
             )}

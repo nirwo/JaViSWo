@@ -117,7 +117,15 @@ function CockpitProvider({ children }) {
     setJarvisState('idle');
     setJarvisTranscript('');
     setJarvisError(null);
+    setJarvisReply('');
   }, []);
+
+  // M3.3: JARVIS reply rendered in the overlay. We aggregate the text
+  // envelopes from JARVIS's agent (excluding any fenced ```jarvis-tool blocks
+  // — those are tool calls, not user-facing speech).
+  const [jarvisAgentId, setJarvisAgentId] = React.useState(null);
+  const [jarvisReply, setJarvisReply] = React.useState('');
+  const [jarvisThinking, setJarvisThinking] = React.useState(false);
 
   // Hide tool work — collapses tool/thinking chips into micro-pills
   const [hideToolWork, setHideToolWork] = React.useState(
@@ -437,20 +445,91 @@ function CockpitProvider({ children }) {
         for (const a of agentsFromServer) {
           const promptText = a.firstPrompt || '';
           const slug = promptText.slice(0, 30).trim() + (promptText.length > 30 ? '…' : '') || a.id.slice(0, 12);
-          ensureAgent(a.id, { slug, projectPath: a.projectPath, turn: a.turn ?? 1 });
+          ensureAgent(a.id, {
+            slug,
+            projectPath: a.projectPath,
+            turn: a.turn ?? 1,
+            spawnedBy: a.spawnedBy ?? null,
+          });
         }
         setCurrentAgentId(prev => {
           if (prev) return prev;
           if (agentsFromServer.length === 0) return null;
-          const mostRecent = [...agentsFromServer].sort((x, y) => y.createdAt - x.createdAt)[0];
+          // Don't auto-select JARVIS himself — he's an internal singleton.
+          const userVisible = agentsFromServer.filter(x =>
+            (x.firstPrompt || '') !== 'JARVIS orchestrator',
+          );
+          if (userVisible.length === 0) return null;
+          const mostRecent = [...userVisible].sort((x, y) => y.createdAt - x.createdAt)[0];
           return mostRecent.id;
         });
+      } catch {}
+      // Discover the JARVIS agent so we can subscribe to his envelope stream.
+      try {
+        const r = await fetch('/api/jarvis/state');
+        if (r.ok && alive) {
+          const body = await r.json();
+          if (body.agentId) setJarvisAgentId(body.agentId);
+        }
       } catch {}
     })();
     return () => { alive = false; };
     // Mount-only intentionally
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Subscribe to JARVIS's envelope stream once we know his agentId — so his
+  // text replies flow into jarvisReply for the overlay to render.
+  React.useEffect(() => {
+    if (!jarvisAgentId) return;
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (subscribedRef.current.has(jarvisAgentId)) return;
+    ws.send(JSON.stringify({ resume: { agentId: jarvisAgentId, sinceSeq: -1 } }));
+    subscribedRef.current.add(jarvisAgentId);
+  }, [jarvisAgentId, wsStatus]);
+
+  // Filter JARVIS envelopes into the overlay state. We only care about
+  // partial_text + text envelopes and result/exit for "thinking" → done.
+  React.useEffect(() => {
+    if (!jarvisAgentId) return;
+    const a = agents.get(jarvisAgentId);
+    if (!a) return;
+    // Find the latest agent-text message for JARVIS's current turn.
+    const lastText = [...a.messages].reverse().find(m =>
+      m.kind === 'agent-text' && m.turn === a.turn,
+    );
+    if (lastText && lastText.text) {
+      // Strip ```jarvis-tool fences from the user-facing reply.
+      const visible = lastText.text.replace(/```jarvis-tool[\s\S]*?```/g, '').trim();
+      setJarvisReply(visible);
+    }
+    setJarvisThinking(a.status === 'running');
+  }, [agents, jarvisAgentId]);
+
+  const sayToJarvis = React.useCallback(async (text) => {
+    if (!text || !text.trim()) return { ok: false, reason: 'empty' };
+    setJarvisReply('');
+    setJarvisThinking(true);
+    try {
+      const r = await fetch('/api/jarvis/say', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      if (!r.ok) {
+        setJarvisThinking(false);
+        const body = await r.json().catch(() => null);
+        return { ok: false, reason: 'http_error', detail: body };
+      }
+      const body = await r.json();
+      if (body.agentId && !jarvisAgentId) setJarvisAgentId(body.agentId);
+      return { ok: true };
+    } catch (err) {
+      setJarvisThinking(false);
+      return { ok: false, reason: 'network_error', detail: err.message };
+    }
+  }, [jarvisAgentId]);
 
   // Actions
   const spawn = React.useCallback(async (prompt) => {
@@ -587,6 +666,10 @@ function CockpitProvider({ children }) {
     setJarvisListenerStatus,
     jarvisInterimText,
     setJarvisInterimText,
+    jarvisAgentId,
+    jarvisReply,
+    jarvisThinking,
+    sayToJarvis,
     spawn,
     continueAgent,
     selectAgent,
