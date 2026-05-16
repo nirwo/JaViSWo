@@ -1,15 +1,21 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Server as HttpServer } from 'node:http';
+import type { Server as HttpsServer } from 'node:https';
 import { ResumeRequestSchema, type Envelope } from '@cockpit/shared';
 import type { AgentRegistry } from './registry.js';
 
 type Subscription = { agentId: string; sinceSeq: number };
+type UpgradeEmitter = Pick<HttpServer | HttpsServer, 'on'>;
 
-export function attachWebSocket(httpServer: HttpServer, registry: AgentRegistry) {
+export function attachWebSocket(
+  servers: UpgradeEmitter | UpgradeEmitter[],
+  registry: AgentRegistry,
+) {
   const wss = new WebSocketServer({ noServer: true });
   const subs = new Map<WebSocket, Subscription[]>();
+  const serverList = Array.isArray(servers) ? servers : [servers];
 
-  httpServer.on('upgrade', (req, socket, head) => {
+  for (const httpServer of serverList) httpServer.on('upgrade', (req, socket, head) => {
     if (req.url !== '/ws') {
       socket.destroy();
       return;

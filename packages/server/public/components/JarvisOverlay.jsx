@@ -68,7 +68,7 @@ const JarvisStatusPill = () => {
     case 'ready':     text = tail ? `hearing: "${tail}"` : 'standing by · say "hey JARVIS"'; break;
     case 'paused':    text = 'paused (Chrome auto-stops) · restarting'; break;
     case 'no-support': text = 'wake word unsupported (use Chrome)'; break;
-    case 'insecure':  text = 'wake word needs localhost (not LAN IP)'; break;
+    case 'insecure':  text = `wake needs HTTPS — open https://${location.hostname}:8788`; break;
     case 'no-mic':    text = 'no microphone available'; break;
     case 'denied':    text = 'microphone denied · check site permissions'; break;
     case 'error':     text = 'recognizer error'; break;

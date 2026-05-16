@@ -1,5 +1,6 @@
 import { serve } from '@hono/node-server';
-import { homedir } from 'node:os';
+import { createServer as createHttpsServer } from 'node:https';
+import { homedir, networkInterfaces } from 'node:os';
 import { join } from 'node:path';
 import { loadConfig } from './config.js';
 import { openDb, closeDb } from './db.js';
@@ -10,6 +11,7 @@ import { AgentSupervisor } from './supervisor.js';
 import { attachWebSocket } from './ws.js';
 import { initFileWatch, stopFileWatch } from './file-watch.js';
 import { PreviewManager } from './preview.js';
+import { ensureTlsCert, readTlsMaterial } from './tls.js';
 
 const config = loadConfig();
 
@@ -33,14 +35,54 @@ const previewManager = new PreviewManager();
 
 const app = buildHttpApp(config, registry, supervisor, recents, () => clientCount(), previewManager);
 
-const server = serve(
+const httpServer = serve(
   { fetch: app.fetch, hostname: config.host, port: config.port },
   ({ address, port }) => {
     console.log(`[cockpit] HTTP+WS listening on http://${address}:${port}`);
   },
 );
 
-const ws = attachWebSocket(server as unknown as import('node:http').Server, registry);
+// HTTPS — browsers require a secure context for mic + speech APIs over LAN
+// IPs. We serve a parallel HTTPS listener on COCKPIT_HTTPS_PORT (default
+// 8788). Disable with COCKPIT_HTTPS=false.
+const httpsEnabled = (process.env.COCKPIT_HTTPS ?? 'true') !== 'false';
+const httpsPort = Number(process.env.COCKPIT_HTTPS_PORT ?? 8788);
+let httpsServer: import('node:https').Server | undefined;
+if (httpsEnabled) {
+  const tls = ensureTlsCert();
+  if (tls) {
+    const material = readTlsMaterial(tls);
+    httpsServer = serve(
+      {
+        fetch: app.fetch,
+        hostname: config.host,
+        port: httpsPort,
+        createServer: createHttpsServer,
+        serverOptions: { key: material.key, cert: material.cert },
+      },
+      ({ port }) => {
+        console.log(`[cockpit] HTTPS+WS listening on https://0.0.0.0:${port} — required for voice over LAN`);
+        const ifs = networkInterfaces();
+        for (const list of Object.values(ifs)) {
+          if (!list) continue;
+          for (const ni of list) {
+            if (!ni.internal && ni.family === 'IPv4') {
+              console.log(`[cockpit]   LAN voice URL: https://${ni.address}:${port}`);
+            }
+          }
+        }
+      },
+    ) as unknown as import('node:https').Server;
+  } else {
+    console.warn('[cockpit] HTTPS disabled — could not generate cert. Voice will only work on http://localhost.');
+  }
+}
+
+const servers = httpsServer ? [httpServer, httpsServer] : [httpServer];
+const ws = attachWebSocket(
+  servers as unknown as import('node:http').Server[],
+  registry,
+);
 broadcast = ws.broadcast;
 clientCount = ws.clientCount;
 
@@ -49,15 +91,13 @@ clientCount = ws.clientCount;
 // project, which calls setActiveProject() on the watcher.
 initFileWatch(ws.broadcastAll);
 
-process.on('SIGTERM', () => {
+function shutdown() {
   previewManager.shutdown();
   stopFileWatch();
   closeDb();
+  try { httpServer.close(); } catch { /* already closed */ }
+  if (httpsServer) try { httpsServer.close(); } catch { /* already closed */ }
   process.exit(0);
-});
-process.on('SIGINT', () => {
-  previewManager.shutdown();
-  stopFileWatch();
-  closeDb();
-  process.exit(0);
-});
+}
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
