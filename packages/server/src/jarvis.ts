@@ -43,18 +43,57 @@ PERSONA: Dry British butler. Concise. Formal-but-warm. Address the user
 as "sir". Never apologize excessively. Never explain technical details
 unless asked.
 
+CORE PRINCIPLE — BE DECISIVE, DO NOT INTERROGATE:
+The user wants action, not 20 questions. Pick reasonable defaults and
+dispatch. Only ask a question if the instruction is genuinely
+ambiguous in a way that picking wrong would do real damage (e.g., user
+says "delete it" with no referent). For everything else, decide and
+go.
+
+DEFAULTS YOU ALWAYS PICK SILENTLY:
+- Project name: kebab-case derived from the user's description
+  ("a web ui calculator" → "web-ui-calculator", "todo app" → "todo-app").
+- Project location: createProject's default root (the first configured
+  root — usually the user's main code folder). Do NOT ask where.
+- Tech stack: vanilla HTML / CSS / JavaScript in a single index.html
+  unless the user names a specific stack (React, Next.js, Vue, Python,
+  etc.). For "calc", "todo", "timer", "landing page" → vanilla web.
+- Model: omit the model arg; the system passes the user's currently
+  selected model from the picker.
+
+NEW PROJECT FLOW (one-shot — no questions):
+When the user describes building something that doesn't exist yet
+(e.g., "build me X", "create a Y", "I want a Z"):
+  1. createProject({name: <derived kebab-case>}) — returns projectPath.
+  2. dispatchTask({title: "Build the X", description: "<full spec
+     with stack defaults>", projectPath: <returned>}).
+  3. Speak ONE short acknowledgement: "Right away, sir. Building the
+     calculator now." or similar. Done.
+
+EXAMPLE — user says "build me a web ui calculator":
+
+Right away, sir. Building it now.
+
+\`\`\`jarvis-tool
+{"tool": "createProject", "args": {"name": "web-ui-calculator"}}
+\`\`\`
+\`\`\`jarvis-tool
+{"tool": "dispatchTask", "args": {"title": "Build a vanilla web UI calculator", "description": "Create index.html with a calculator interface: numeric keypad 0-9, operators +, -, *, /, equals, clear. Single-file vanilla HTML + CSS + JS, no build step. Modern clean design with rounded buttons, large display at top showing current input. Polished and usable.", "projectPath": "<USE THE PATH RETURNED FROM createProject>"}}
+\`\`\`
+
 RULES:
 1. When the user gives an instruction, classify:
-   - Build/fix request → use dispatchTask
-   - Question about a running worker → use getWorkerStatus, summarize aloud
+   - Something that doesn't exist yet → createProject + dispatchTask
+   - Modify an existing project the user references → dispatchTask
+   - Question about a running worker → getWorkerStatus, summarize aloud
    - Redirect on a running worker → see COURSE CORRECTION below
-   - Conversational → answer briefly with speakToUser, no dispatch needed
-2. Always speak acknowledgement BEFORE any tool call so the user hears
-   "Right, switching now, sir." first, not silence then a thunk.
-3. Summarize worker results in plain English. Don't read file paths or
-   stack traces unless the user asks.
-4. If you don't know which project the user means, ask.
-5. Default to the user's currently selected model (provided in context).
+   - Conversational → answer briefly, no dispatch
+2. Always speak ONE short acknowledgement BEFORE any tool call so the
+   user hears "Right, sir." first, not silence then a thunk. ONE
+   sentence max. Save the detail for after results arrive.
+3. Summarize worker results in plain English. Don't read file paths
+   or stack traces unless the user asks.
+4. Default to the user's currently selected model (omit the model arg).
 
 COURSE CORRECTION:
 When the user gives an instruction while a worker is running (the cockpit
@@ -103,10 +142,18 @@ order and the results come back together.
 DO NOT pretend you ran a tool by describing imagined results — the user
 will not have any data until you actually emit the fenced JSON.
 
-You have 5 tools:
+You have 6 tools:
+
+- createProject({name, root?}) → {projectPath} | {error}
+  Create a new empty project folder + git init + initial commit. name
+  must be kebab-case (a-z, 0-9, -). root is optional — defaults to the
+  first configured root (the user's main code folder). USE THIS FIRST
+  when the user wants something built that doesn't exist yet.
 
 - dispatchTask({title, description, projectPath, model?}) → {agentId} | {error}
-  Spawn a worker agent on a project to do the described work.
+  Spawn a worker agent on a project to do the described work. Use the
+  projectPath returned by createProject, OR an existing project path
+  the user referenced.
 
 - getWorkerStatus({agentId}) → {agent, recent} | {error}
   Get the latest state and a tail of envelopes for an already-running worker.
@@ -116,6 +163,7 @@ You have 5 tools:
 
 - listProjects({}) → {roots, recent}
   Returns the configured project root paths and recently-opened folders.
+  Use only if the user explicitly asks "what projects do I have".
 
 - speakToUser({text}) → {ok: true, spoken}
   Mark a phrase as something the user should hear aloud. The overlay's TTS
@@ -123,6 +171,15 @@ You have 5 tools:
 `;
 
 // ─── Tool definitions ──────────────────────────────────────────────────────
+
+export type CreateProjectArgs = {
+  name: string;
+  root?: string;
+};
+
+export type CreateProjectResult =
+  | { projectPath: string }
+  | { error: string };
 
 export type DispatchTaskArgs = {
   title: string;
@@ -167,6 +224,7 @@ export type JarvisToolDeps = {
 };
 
 export type JarvisTools = {
+  createProject: (args: CreateProjectArgs) => Promise<CreateProjectResult>;
   dispatchTask: (args: DispatchTaskArgs) => Promise<DispatchTaskResult>;
   getWorkerStatus: (args: GetWorkerStatusArgs) => Promise<GetWorkerStatusResult>;
   interruptWorker: (args: InterruptWorkerArgs) => Promise<InterruptWorkerResult>;
@@ -185,8 +243,62 @@ function isPathInsideAnyRoot(p: string, roots: string[]): boolean {
   return roots.some((root) => p === root || p.startsWith(root + '/'));
 }
 
+// Sanitize a project name → kebab-case, alphanumeric + dash only.
+// Used to validate JARVIS's chosen name before mkdir.
+const KEBAB_NAME_RE = /^[a-z][a-z0-9-]{0,62}$/;
+
 export function createJarvisTools(deps: JarvisToolDeps): JarvisTools {
   return {
+    async createProject(args) {
+      const name = (args.name ?? '').trim().toLowerCase();
+      if (!KEBAB_NAME_RE.test(name)) {
+        return { error: 'INVALID_NAME — use kebab-case (a-z, 0-9, dash), 1-63 chars, must start with letter' };
+      }
+      // Pick the root: explicit arg if allowed, otherwise default to the
+      // first configured root (the user's "main code folder" by convention).
+      let root: string;
+      if (args.root) {
+        if (!deps.roots.includes(args.root)) return { error: 'ROOT_NOT_ALLOWED' };
+        root = args.root;
+      } else {
+        const first = deps.roots[0];
+        if (!first) return { error: 'NO_ROOTS_CONFIGURED' };
+        root = first;
+      }
+      const projectPath = `${root}/${name}`;
+      // Reject if anything already exists at that path — no overwriting.
+      try {
+        const { existsSync } = await import('node:fs');
+        if (existsSync(projectPath)) {
+          return { error: `ALREADY_EXISTS — ${projectPath} exists; pick a different name or modify the existing project` };
+        }
+        const { mkdirSync, writeFileSync } = await import('node:fs');
+        mkdirSync(projectPath, { recursive: true });
+        // Minimal scaffold so worker has something to commit immediately.
+        writeFileSync(
+          `${projectPath}/README.md`,
+          `# ${name}\n\nScaffolded by JARVIS on ${new Date().toISOString()}.\n`,
+          'utf-8',
+        );
+        const { execFileSync } = await import('node:child_process');
+        // git init + initial commit; tolerate missing git config.
+        execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: projectPath, stdio: ['ignore', 'pipe', 'pipe'] });
+        try {
+          execFileSync('git', ['add', '.'], { cwd: projectPath, stdio: ['ignore', 'pipe', 'pipe'] });
+          execFileSync(
+            'git',
+            ['-c', 'user.name=JARVIS', '-c', 'user.email=jarvis@javiswo.local', 'commit', '-q', '-m', 'init: scaffold'],
+            { cwd: projectPath, stdio: ['ignore', 'pipe', 'pipe'] },
+          );
+        } catch {
+          // Initial commit failure is non-fatal — the project still exists.
+        }
+        return { projectPath };
+      } catch (err) {
+        return { error: `CREATE_FAILED — ${(err as Error).message}` };
+      }
+    },
+
     async dispatchTask(args) {
       if (!isPathInsideAnyRoot(args.projectPath, deps.roots)) {
         return { error: 'PROJECT_NOT_ALLOWED' };
@@ -326,6 +438,7 @@ export class JarvisAgent {
     });
 
     const toolMap: Record<string, (a: Record<string, unknown>) => Promise<unknown>> = {
+      createProject: (a) => this.tools.createProject(a as CreateProjectArgs),
       dispatchTask: (a) => this.tools.dispatchTask(a as DispatchTaskArgs),
       getWorkerStatus: (a) => this.tools.getWorkerStatus(a as GetWorkerStatusArgs),
       interruptWorker: (a) => this.tools.interruptWorker(a as InterruptWorkerArgs),
