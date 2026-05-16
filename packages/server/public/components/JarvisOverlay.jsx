@@ -16,9 +16,11 @@ const SILENCE_RMS = 0.018;
 const SILENCE_MS = 1400;
 const MAX_RECORD_MS = 12_000;
 // M3.7 multi-turn: between JARVIS replies and the user's next utterance,
-// give a shorter window to start speaking — keeps the conversation
-// snappy without trapping the mic on if the user has stopped.
-const FOLLOWUP_MAX_RECORD_MS = 8_000;
+// give a generous window to start speaking. Users often need 2-3s to
+// formulate the next thought; the 1.4s silence-after-speech detector
+// closes the recording promptly once the user actually starts and stops
+// talking.
+const FOLLOWUP_MAX_RECORD_MS = 15_000;
 
 function hasWakeWordSupport() {
   return typeof window !== 'undefined' && (
@@ -264,10 +266,12 @@ const JarvisOverlay = () => {
       }
       const idleFor = Date.now() - lastSpeechRef.current;
       const totalFor = Date.now() - (recorder.startedAt ?? Date.now());
-      // In follow-up mode, exit fast if the user clearly isn't going
-      // to speak (no speech detected within the first 4s of the window).
-      const earlyBail = followUp && !speechDetected && totalFor > 4_000;
-      if (idleFor > SILENCE_MS || totalFor > maxRecordMs || earlyBail) {
+      // In follow-up mode, only bail early if the user is clearly not
+      // going to speak (no speech detected within the FULL window).
+      // 4s was too aggressive — users hesitate, formulate, then speak.
+      // Now we let the full FOLLOWUP_MAX_RECORD_MS elapse before
+      // calling it silence.
+      if (idleFor > SILENCE_MS || totalFor > maxRecordMs) {
         if (recorder.state !== 'inactive') recorder.stop();
         return;
       }
@@ -408,6 +412,43 @@ const JarvisOverlay = () => {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [jarvisState, dismissJarvis, stopRecording]);
+
+  // M3.7 fix — re-arm the wake recognizer when state returns to idle.
+  //
+  // Bug: when the wake word fires, we call rec.stop(). rec.onend fires
+  // immediately afterwards but state is 'wake' at that moment, so the
+  // onend handler's restart branch doesn't trigger. Then the conversation
+  // runs, state eventually returns to 'idle' via dismissJarvis or the
+  // multi-turn silence exit — but the recognizer is still stopped and
+  // nothing kicks it back on. Result: wake word silently dies after the
+  // first conversation until the user toggles JARVIS off/on.
+  //
+  // Fix: watch the state transition into 'idle'; when it lands, ensure
+  // the recognizer is running. .start() throws "InvalidStateError: already
+  // started" if it's already running, which we ignore.
+  React.useEffect(() => {
+    if (jarvisState !== 'idle') return;
+    if (!jarvisEnabled) return;
+    const rec = recognizerRef.current;
+    if (!rec) return;
+    // Small delay so the recognizer's previous stop() cycle settles
+    // before we restart it.
+    const t = setTimeout(() => {
+      try {
+        rec.start();
+        setJarvisListenerStatus('ready');
+      } catch (err) {
+        // "already started" is fine — recognizer never actually stopped.
+        if (!/already started|InvalidState/i.test(String(err?.message))) {
+          setJarvisListenerStatus('error');
+          setJarvisError(`Wake recognizer restart failed: ${err.message}`);
+        } else {
+          setJarvisListenerStatus('ready');
+        }
+      }
+    }, 200);
+    return () => clearTimeout(t);
+  }, [jarvisState, jarvisEnabled, setJarvisListenerStatus, setJarvisError]);
 
   return (
     <>
