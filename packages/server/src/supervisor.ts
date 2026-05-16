@@ -117,6 +117,97 @@ export class AgentSupervisor {
     return { agentId: handle.id };
   }
 
+  /**
+   * Run one turn for a pre-existing JARVIS-style agent: spawn `claude -p`
+   * with `--tools ""` so all built-in tools are disabled, an
+   * `--append-system-prompt` injecting the JARVIS persona + tool schemas,
+   * and (after the first turn) `--resume <sessionId>` to keep memory.
+   *
+   * Unlike spawnAgent/continueAgent, this does not change the agent's
+   * project metadata — JARVIS doesn't have a project, he just talks.
+   * Envelopes are emitted via the shared onEnvelope sink as usual.
+   */
+  runJarvisTurn(input: {
+    agentId: string;
+    prompt: string;
+    model: string;
+    systemPrompt: string;
+    resumeSessionId?: string;
+    isFirstTurn: boolean;
+  }): void {
+    const meta = this.registry.get(input.agentId);
+    if (!meta) {
+      // No agent — fabricate a stderr+exit so the JarvisAgent's
+      // turn-end resolver fires and we don't deadlock.
+      const seq = this.registry.nextSeqFor(input.agentId);
+      this.onEnvelope({
+        v: 1,
+        agentId: input.agentId,
+        seq,
+        ts: Date.now(),
+        kind: 'stderr',
+        payload: { text: 'JARVIS agent row missing — re-init required' },
+      });
+      this.onEnvelope({
+        v: 1,
+        agentId: input.agentId,
+        seq: this.registry.nextSeqFor(input.agentId),
+        ts: Date.now(),
+        kind: 'exit',
+        payload: { code: -1 },
+      });
+      return;
+    }
+
+    if (!input.isFirstTurn) this.registry.bumpTurn(input.agentId);
+    this.emitUserPrompt(input.agentId, input.prompt);
+
+    const args = [
+      '-p',
+      input.prompt,
+      '--output-format',
+      'stream-json',
+      '--include-partial-messages',
+      '--max-turns',
+      String(DEFAULTS.maxTurns),
+      '--max-budget-usd',
+      String(DEFAULTS.maxBudgetUsd),
+      '--model',
+      input.model,
+      '--permission-mode',
+      DEFAULTS.permissionMode,
+      // Disable every built-in tool — JARVIS only uses the 5 we inject
+      // via prompt (parsed from his ```jarvis-tool fences).
+      '--tools',
+      '',
+      // Belt-and-braces: --strict-mcp-config with no --mcp-config flag
+      // means "ignore any globally-registered MCP servers." Together with
+      // --tools "" and --disable-slash-commands this guarantees JARVIS
+      // sees zero tools beyond the five we describe in his prompt.
+      '--strict-mcp-config',
+      '--disable-slash-commands',
+      '--append-system-prompt',
+      input.systemPrompt,
+      '--verbose',
+    ];
+
+    if (input.resumeSessionId) {
+      args.push('--resume', input.resumeSessionId);
+    }
+
+    const child = spawn('claude', args, {
+      cwd: meta.projectPath,
+      env: this.sanitizedEnv,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    this.procs.set(input.agentId, child);
+
+    this.wireChild(input.agentId, child, {
+      nextSeq: () => this.registry.nextSeqFor(input.agentId),
+      initialSessionId: input.resumeSessionId ?? '',
+    });
+  }
+
   continueAgent(agentId: string, prompt: string, model?: string): ContinueResult {
     const sessionId = this.registry.sessionIdFor(agentId);
     if (!sessionId) return { ok: false, reason: 'NO_SESSION' };
