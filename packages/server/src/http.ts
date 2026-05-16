@@ -1,4 +1,5 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { isAbsolute, join, resolve } from 'node:path';
 import { Hono } from 'hono';
 import { serveStatic } from '@hono/node-server/serve-static';
@@ -40,6 +41,12 @@ const SpawnInputSchema = z.object({
 
 const TurnInputSchema = z.object({
   prompt: z.string().min(1),
+  model: z.string().optional(),
+});
+
+const GitCommitBody = z.object({
+  root: z.string().min(1),
+  message: z.string().min(1),
 });
 
 export function buildHttpApp(
@@ -79,7 +86,7 @@ export function buildHttpApp(
     if (!parsed.success) {
       return c.json({ error: { code: 'VALIDATION_ERROR', issues: parsed.error.issues } }, 400);
     }
-    const result = supervisor.continueAgent(agentId, parsed.data.prompt);
+    const result = supervisor.continueAgent(agentId, parsed.data.prompt, parsed.data.model);
     if (!result.ok) {
       return c.json({ error: { code: result.reason ?? 'CONTINUE_FAILED' } }, 409);
     }
@@ -251,6 +258,39 @@ export function buildHttpApp(
     return c.json(
       status ?? { branch: null, added: 0, modified: 0, removed: 0, untracked: 0, files: [] },
     );
+  });
+
+  app.post('/api/git/commit', async (c) => {
+    const body = await c.req.json().catch(() => null);
+    const parsed = GitCommitBody.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: { code: 'VALIDATION_ERROR', issues: parsed.error.issues } }, 400);
+    }
+    const root = resolve(parsed.data.root);
+    if (!isRootAllowed(root)) return c.json({ error: { code: 'ROOT_NOT_ALLOWED' } }, 403);
+    try {
+      execFileSync('git', ['add', '-A'], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
+      const out = execFileSync(
+        'git',
+        ['commit', '-m', parsed.data.message],
+        { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] },
+      );
+      return c.json({ ok: true, output: out.toString('utf-8') });
+    } catch (err) {
+      const e = err as { message?: string; stderr?: Buffer; stdout?: Buffer };
+      return c.json(
+        {
+          ok: false,
+          error: {
+            code: 'COMMIT_FAILED',
+            detail: e.message ?? 'unknown',
+            stderr: e.stderr?.toString('utf-8') ?? '',
+            stdout: e.stdout?.toString('utf-8') ?? '',
+          },
+        },
+        500,
+      );
+    }
   });
 
   app.get('/api/design', (c) => {

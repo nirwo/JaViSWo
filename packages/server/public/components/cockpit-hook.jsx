@@ -17,6 +17,13 @@
 
 const COCKPIT_STORAGE_KEY = 'cockpit:state:v1';
 
+const MODEL_CHOICES = [
+  { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
+  { id: 'claude-opus-4-7',   label: 'Opus 4.7' },
+  { id: 'claude-haiku-4-5',  label: 'Haiku 4.5' },
+];
+window.MODEL_CHOICES = MODEL_CHOICES;
+
 function loadPersistedSelection() {
   try {
     const raw = localStorage.getItem(COCKPIT_STORAGE_KEY);
@@ -61,6 +68,15 @@ function CockpitProvider({ children }) {
   const [projectGit, setProjectGit] = React.useState(null);
   const [projectDesign, setProjectDesign] = React.useState(null);
   const [clientCount, setClientCount] = React.useState(1);
+
+  // Selected model — persisted to localStorage
+  const [selectedModel, setSelectedModelState] = React.useState(
+    () => localStorage.getItem('cockpit:model') || 'claude-sonnet-4-6',
+  );
+  const setSelectedModel = React.useCallback((m) => {
+    setSelectedModelState(m);
+    try { localStorage.setItem('cockpit:model', m); } catch {}
+  }, []);
 
   // TTS
   const [ttsEnabled, setTtsEnabled] = React.useState(
@@ -413,7 +429,7 @@ function CockpitProvider({ children }) {
     const r = await fetch('/api/agents', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ prompt, projectPath: draftProject.path }),
+      body: JSON.stringify({ prompt, projectPath: draftProject.path, model: selectedModel }),
     });
     if (!r.ok) {
       const body = await r.json().catch(() => null);
@@ -430,7 +446,7 @@ function CockpitProvider({ children }) {
       subscribedRef.current.add(id);
     }
     return { ok: true, agentId: id };
-  }, [draftProject, ensureAgent]);
+  }, [draftProject, ensureAgent, selectedModel]);
 
   const continueAgent = React.useCallback(async (agentId, prompt) => {
     const a = agentsRef.current.get(agentId);
@@ -438,14 +454,14 @@ function CockpitProvider({ children }) {
     const r = await fetch(`/api/agents/${agentId}/turn`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ prompt }),
+      body: JSON.stringify({ prompt, model: selectedModel }),
     });
     if (!r.ok) {
       const body = await r.json().catch(() => null);
       return { ok: false, reason: 'http_error', detail: body };
     }
     return { ok: true };
-  }, []);
+  }, [selectedModel]);
 
   const selectAgent = React.useCallback((id) => setCurrentAgentId(id), []);
 
@@ -524,6 +540,8 @@ function CockpitProvider({ children }) {
     setCenterView,
     openEditor,
     refreshProjectData,
+    selectedModel,
+    setSelectedModel,
     spawn,
     continueAgent,
     selectAgent,

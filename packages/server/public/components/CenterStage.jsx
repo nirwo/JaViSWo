@@ -608,6 +608,7 @@ const Composer = () => {
   const {
     spawn, continueAgent, agents, currentAgentId,
     draftProject, openPicker, wsStatus,
+    selectedModel, setSelectedModel,
   } = useCockpit();
 
   const [val, setVal] = React.useState('');
@@ -781,7 +782,19 @@ const Composer = () => {
           letterSpacing: '0.06em',
         }}>
           <span style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
-            <span><b style={{ color: 'var(--violet-300)' }}>claude-sonnet-4-6</b> · auto-context</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <select
+                className="model-picker"
+                value={selectedModel}
+                onChange={(e) => setSelectedModel(e.target.value)}
+                title="Working model — applies to next turn"
+              >
+                {(window.MODEL_CHOICES || []).map(m => (
+                  <option key={m.id} value={m.id}>{m.label}</option>
+                ))}
+              </select>
+              <span>· auto-context</span>
+            </span>
             <span style={{ display: 'flex', gap: 6 }}>
               {draftProject && <span className="tag cyan">project: {draftProject.name}</span>}
               {agent && <span className="tag">turn: {agent.turn}</span>}

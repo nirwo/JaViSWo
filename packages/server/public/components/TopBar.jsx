@@ -1,10 +1,70 @@
 // JaViSWo — Top bar (brand, multi-agent tabs, branch, tokens)
 
+const HistoryDropdown = ({ agents, currentAgentId, onPick, onClose }) => (
+  <div className="topbar-popover" role="menu">
+    <div style={{
+      padding: '8px 12px',
+      fontFamily: 'var(--f-mono)', fontSize: 10,
+      letterSpacing: '0.14em', textTransform: 'uppercase',
+      color: 'var(--text-mute)', borderBottom: '1px solid var(--hairline)',
+    }}>
+      History · {agents.size}
+    </div>
+    {agents.size === 0 && (
+      <div style={{ padding: 14, color: 'var(--text-mute)', fontSize: 12 }}>
+        No conversations yet
+      </div>
+    )}
+    {[...agents.values()].map(a => (
+      <button
+        key={a.id}
+        role="menuitem"
+        onClick={() => { onPick(a.id); onClose(); }}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          width: '100%', padding: '8px 12px',
+          background: a.id === currentAgentId ? 'rgba(94,234,212,0.08)' : 'transparent',
+          border: 'none', cursor: 'pointer', color: 'var(--text)',
+          font: 'inherit', fontSize: 12.5, textAlign: 'left',
+        }}
+        onMouseEnter={e => {
+          if (a.id !== currentAgentId) e.currentTarget.style.background = 'rgba(167,139,250,0.06)';
+        }}
+        onMouseLeave={e => {
+          if (a.id !== currentAgentId) e.currentTarget.style.background = 'transparent';
+        }}
+      >
+        <span className={`session-pulse ${a.status === 'running' ? '' : a.status === 'errored' ? 'error' : 'done'}`}/>
+        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {a.slug}
+        </span>
+        <span style={{ fontFamily: 'var(--f-mono)', fontSize: 10, color: 'var(--text-mute)' }}>
+          {a.tokens} tk
+        </span>
+      </button>
+    ))}
+  </div>
+);
+
 const TopBar = () => {
   const {
     agents, currentAgentId, selectAgent, closeAgent,
     totalTokens, totalCost, draftProject, openPicker, projectDesign,
   } = useCockpit();
+
+  const [historyOpen, setHistoryOpen] = React.useState(false);
+  const historyAnchorRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (!historyOpen) return;
+    const close = (e) => {
+      if (historyAnchorRef.current && !historyAnchorRef.current.contains(e.target)) {
+        setHistoryOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [historyOpen]);
 
   const list = [...agents.values()];
 
@@ -112,8 +172,35 @@ const TopBar = () => {
           <Icon name="bolt" size={11} style={{ color: 'var(--cyan-300)' }}/>
           <span>${totalCost.toFixed(4)}</span>
         </div>
-        <button className="icon-btn" title="History"><Icon name="history" size={15}/></button>
-        <button className="icon-btn" title="Settings"><Icon name="settings" size={15}/></button>
+        <div style={{ position: 'relative' }} ref={historyAnchorRef}>
+          <button
+            className="icon-btn"
+            title="History"
+            onClick={() => setHistoryOpen(o => !o)}
+          >
+            <Icon name="history" size={15}/>
+          </button>
+          {historyOpen && (
+            <HistoryDropdown
+              agents={agents}
+              currentAgentId={currentAgentId}
+              onPick={selectAgent}
+              onClose={() => setHistoryOpen(false)}
+            />
+          )}
+        </div>
+        <button
+          className="icon-btn"
+          title="Settings"
+          onClick={() => {
+            document.body.classList.add('twk-flash');
+            setTimeout(() => document.body.classList.remove('twk-flash'), 1200);
+            const panel = document.querySelector('.twk-panel');
+            if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          }}
+        >
+          <Icon name="settings" size={15}/>
+        </button>
         <div className="avatar">NW</div>
       </div>
     </header>

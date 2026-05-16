@@ -117,7 +117,7 @@ export class AgentSupervisor {
     return { agentId: handle.id };
   }
 
-  continueAgent(agentId: string, prompt: string): ContinueResult {
+  continueAgent(agentId: string, prompt: string, model?: string): ContinueResult {
     const sessionId = this.registry.sessionIdFor(agentId);
     if (!sessionId) return { ok: false, reason: 'NO_SESSION' };
     const meta = this.registry.get(agentId);
@@ -140,6 +140,8 @@ export class AgentSupervisor {
       String(DEFAULTS.maxTurns),
       '--max-budget-usd',
       String(DEFAULTS.maxBudgetUsd),
+      '--model',
+      model ?? DEFAULTS.model,
       '--permission-mode',
       DEFAULTS.permissionMode,
       '--verbose',

@@ -8,7 +8,7 @@ import { AgentRegistry } from './registry.js';
 import { RecentsStore } from './recents.js';
 import { AgentSupervisor } from './supervisor.js';
 import { attachWebSocket } from './ws.js';
-import { startFileWatch } from './file-watch.js';
+import { initFileWatch, stopFileWatch } from './file-watch.js';
 import { PreviewManager } from './preview.js';
 
 const config = loadConfig();
@@ -44,15 +44,20 @@ const ws = attachWebSocket(server as unknown as import('node:http').Server, regi
 broadcast = ws.broadcast;
 clientCount = ws.clientCount;
 
-startFileWatch(config, ws.broadcastAll);
+// File watcher is lazy: it only watches the *active* project, not every
+// configured root. The frontend triggers /api/files/watch when it picks a
+// project, which calls setActiveProject() on the watcher.
+initFileWatch(ws.broadcastAll);
 
 process.on('SIGTERM', () => {
   previewManager.shutdown();
+  stopFileWatch();
   closeDb();
   process.exit(0);
 });
 process.on('SIGINT', () => {
   previewManager.shutdown();
+  stopFileWatch();
   closeDb();
   process.exit(0);
 });

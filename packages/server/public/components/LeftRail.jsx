@@ -195,6 +195,71 @@ const DesignMdSummary = ({ design }) => {
   );
 };
 
+const CommitForm = ({ project, status, onCommitted }) => {
+  const [msg, setMsg] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
+  const [err, setErr] = React.useState(null);
+
+  const hasChanges =
+    (status?.added ?? 0) + (status?.modified ?? 0) +
+    (status?.removed ?? 0) + (status?.untracked ?? 0) > 0;
+  const disabled = busy || !project?.path || !hasChanges || msg.trim().length === 0;
+
+  const doCommit = async () => {
+    if (disabled) return;
+    setBusy(true); setErr(null);
+    try {
+      const r = await fetch('/api/git/commit', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ root: project.path, message: msg.trim() }),
+      });
+      const body = await r.json().catch(() => null);
+      if (!r.ok || body?.ok === false) {
+        setErr(body?.error?.stderr || body?.error?.detail || `HTTP ${r.status}`);
+      } else {
+        setMsg('');
+        if (onCommitted) onCommitted();
+      }
+    } catch (e) {
+      setErr(e.message || 'commit failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 10px 12px' }}>
+      <input
+        className="commit-input"
+        type="text"
+        placeholder={hasChanges ? 'Commit message…' : 'Nothing to commit'}
+        value={msg}
+        onChange={(e) => setMsg(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter' && !disabled) doCommit(); }}
+        disabled={!hasChanges || busy}
+      />
+      <button
+        className="btn"
+        style={{ height: 28, fontSize: 11.5 }}
+        disabled={disabled}
+        onClick={doCommit}
+        title={!hasChanges ? 'No staged changes' : 'git add -A && git commit'}
+      >
+        <Icon name="git" size={11}/> {busy ? 'Committing…' : 'Commit all'}
+      </button>
+      {err && (
+        <div style={{
+          fontFamily: 'var(--f-mono)', fontSize: 10,
+          color: 'var(--danger)', whiteSpace: 'pre-wrap',
+          padding: '4px 6px', background: 'rgba(244,63,94,0.06)',
+          border: '1px solid rgba(244,63,94,0.2)', borderRadius: 4,
+        }}>{err}</div>
+      )}
+    </div>
+  );
+};
+
 const LeftRail = () => {
   const {
     agents, currentAgentId, selectAgent,
@@ -301,19 +366,14 @@ const LeftRail = () => {
           <GitCell label="modified" value={projectGit?.modified ?? 0} className="modified"/>
           <GitCell label="new"      value={projectGit?.untracked ?? 0} className="untracked"/>
         </div>
-        <div style={{ display: 'flex', gap: 6, padding: '4px 10px 12px' }}>
-          <button
-            className="btn"
-            style={{ flex: 1, height: 28, fontSize: 11.5 }}
-            disabled
-            title="Commit (M2)"
-          >
-            <Icon name="git" size={11}/> Commit
-          </button>
-        </div>
+        <CommitForm
+          project={draftProject}
+          status={projectGit}
+          onCommitted={refreshProjectData}
+        />
       </RailSection>
     </aside>
   );
 };
 
-Object.assign(window, { LeftRail, FileTreeView, TreeNode, GitCell, DesignMdSummary });
+Object.assign(window, { LeftRail, FileTreeView, TreeNode, GitCell, DesignMdSummary, CommitForm });
