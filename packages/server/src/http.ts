@@ -15,6 +15,7 @@ import { transcribe } from './transcribe.js';
 import { loadDesignMd } from './design-md.js';
 import type { PreviewManager } from './preview.js';
 import { getCaRootPath } from './tls.js';
+import { loadElevenLabsConfig, synthesize } from './elevenlabs.js';
 
 const READ_MAX_BYTES = 1_000_000;
 
@@ -322,6 +323,76 @@ export function buildHttpApp(
 
   app.get('/api/clients', (c) => {
     return c.json({ count: getClientCount() });
+  });
+
+  // ── ElevenLabs TTS proxy (M3.6) ──────────────────────────────────────
+  // POST /api/jarvis/voice {text, voiceId?} → audio/mpeg stream
+  //
+  // Server-side proxy keeps the ElevenLabs API key off the client. Reads
+  // ~/.cockpit/elevenlabs.env on each request so the user can rotate
+  // credentials or swap voices without restarting the server.
+  const VoiceBody = z.object({
+    text: z.string().min(1).max(4000),
+    voiceId: z.string().min(8).max(64).optional(),
+  });
+
+  app.get('/api/jarvis/voice/status', (c) => {
+    const cfg = loadElevenLabsConfig();
+    return c.json({
+      configured: cfg !== null,
+      voiceId: cfg?.voiceId ?? null,
+      model: cfg?.model ?? null,
+    });
+  });
+
+  app.post('/api/jarvis/voice', async (c) => {
+    const cfg = loadElevenLabsConfig();
+    if (!cfg) {
+      return c.json(
+        {
+          error: {
+            code: 'NOT_CONFIGURED',
+            message: 'Set ELEVENLABS_API_KEY + ELEVENLABS_VOICE_ID in ~/.cockpit/elevenlabs.env to enable JARVIS voice.',
+          },
+        },
+        503,
+      );
+    }
+    const body = await c.req.json().catch(() => null);
+    const parsed = VoiceBody.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: { code: 'VALIDATION_ERROR', issues: parsed.error.issues } }, 400);
+    }
+    try {
+      const upstream = await synthesize(parsed.data.text, cfg, {
+        voiceId: parsed.data.voiceId,
+      });
+      if (!upstream.ok) {
+        const detail = await upstream.text().catch(() => '');
+        return c.json(
+          {
+            error: {
+              code: 'UPSTREAM_ERROR',
+              status: upstream.status,
+              detail: detail.slice(0, 500),
+            },
+          },
+          upstream.status === 401 ? 401 : 502,
+        );
+      }
+      return new Response(upstream.body, {
+        status: 200,
+        headers: {
+          'Content-Type': 'audio/mpeg',
+          'Cache-Control': 'no-store',
+        },
+      });
+    } catch (err) {
+      return c.json(
+        { error: { code: 'TTS_FETCH_FAILED', detail: (err as Error).message } },
+        502,
+      );
+    }
   });
 
   // Serve the mkcert root CA so iPhone / other Macs on the LAN can install

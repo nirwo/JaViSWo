@@ -93,15 +93,23 @@ function CockpitProvider({ children }) {
   const [jarvisVoice, setJarvisVoiceState] = React.useState(
     () => localStorage.getItem('cockpit:jarvis-voice') !== '0',
   );
+  // M3.6 — current playing Audio element (for ElevenLabs MP3 playback).
+  // Held in a ref so toggleOff / dismiss can cancel the in-flight clip.
+  const currentAudioRef = React.useRef(null);
+  const cancelCurrentAudio = React.useCallback(() => {
+    const a = currentAudioRef.current;
+    if (a) {
+      try { a.pause(); a.src = ''; } catch {}
+      currentAudioRef.current = null;
+    }
+    try { speechSynthesis.cancel(); } catch {}
+  }, []);
+
   const setJarvisVoice = React.useCallback((v) => {
     setJarvisVoiceState(v);
     try { localStorage.setItem('cockpit:jarvis-voice', v ? '1' : '0'); } catch {}
-    if (!v) {
-      // Cancel any in-flight utterance immediately so toggling off silences
-      // JARVIS without waiting for the current sentence to finish.
-      try { speechSynthesis.cancel(); } catch {}
-    }
-  }, []);
+    if (!v) cancelCurrentAudio();
+  }, [cancelCurrentAudio]);
 
   // JARVIS mode — voice-first orchestrator overlay (M3.2)
   const [jarvisEnabled, setJarvisEnabledState] = React.useState(
@@ -134,9 +142,8 @@ function CockpitProvider({ children }) {
     setJarvisTranscript('');
     setJarvisError(null);
     setJarvisReply('');
-    // Stop any in-flight TTS so dismiss is truly silent.
-    try { speechSynthesis.cancel(); } catch {}
-  }, []);
+    cancelCurrentAudio();
+  }, [cancelCurrentAudio]);
 
   // M3.3: JARVIS reply rendered in the overlay. We aggregate the text
   // envelopes from JARVIS's agent (excluding any fenced ```jarvis-tool blocks
@@ -551,7 +558,10 @@ function CockpitProvider({ children }) {
     // bursts of partial_text deltas become a single utterance.
     const now = Date.now();
     const since = now - lastSpeakAtRef.current;
-    const fire = () => {
+    // Browser SpeechSynthesis fallback path — used if ElevenLabs isn't
+    // configured on the server (503), errors, or the user hasn't set up
+    // an API key. Quality is much lower but it always works.
+    const speakViaBrowser = () => {
       try {
         const u = new SpeechSynthesisUtterance(delta);
         u.rate = 0.95;
@@ -562,10 +572,52 @@ function CockpitProvider({ children }) {
           ?? voices.find(x => x.lang.startsWith('en'));
         if (v) u.voice = v;
         speechSynthesis.speak(u);
-        lastSpokenRef.current = jarvisReply;
-        lastSpeakAtRef.current = Date.now();
       } catch {
         // SpeechSynthesis unavailable — silent failure is fine.
+      }
+    };
+    // M3.6 — Try ElevenLabs first (cinematic British voice via server
+    // proxy). Server returns 503 if no API key is configured, 401/402
+    // if upstream rejects — all of those fall through to the browser
+    // SpeechSynthesis path so JARVIS stays talking under any condition.
+    const fire = async () => {
+      lastSpokenRef.current = jarvisReply;
+      lastSpeakAtRef.current = Date.now();
+      try {
+        const res = await fetch('/api/jarvis/voice', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: delta }),
+        });
+        if (!res.ok) {
+          speakViaBrowser();
+          return;
+        }
+        const blob = await res.blob();
+        if (blob.size < 200) {
+          // Suspiciously small — likely a JSON error masquerading. Fall back.
+          speakViaBrowser();
+          return;
+        }
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audio.preload = 'auto';
+        audio.onended = () => {
+          URL.revokeObjectURL(url);
+          if (currentAudioRef.current === audio) currentAudioRef.current = null;
+        };
+        audio.onerror = () => {
+          URL.revokeObjectURL(url);
+          if (currentAudioRef.current === audio) currentAudioRef.current = null;
+        };
+        // Cancel any older clip before starting the next so JARVIS doesn't
+        // overlap himself when partials arrive faster than playback.
+        const prev = currentAudioRef.current;
+        if (prev) { try { prev.pause(); prev.src = ''; } catch {} }
+        currentAudioRef.current = audio;
+        await audio.play();
+      } catch {
+        speakViaBrowser();
       }
     };
     if (since < 60) {
