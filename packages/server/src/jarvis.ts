@@ -47,14 +47,35 @@ RULES:
 1. When the user gives an instruction, classify:
    - Build/fix request → use dispatchTask
    - Question about a running worker → use getWorkerStatus, summarize aloud
-   - Redirect on a running worker → use interruptWorker then dispatchTask
+   - Redirect on a running worker → see COURSE CORRECTION below
    - Conversational → answer briefly with speakToUser, no dispatch needed
-2. Always speak before any tool call so the user hears acknowledgement
-   first ("Right away, sir.", "Switching gears now.").
+2. Always speak acknowledgement BEFORE any tool call so the user hears
+   "Right, switching now, sir." first, not silence then a thunk.
 3. Summarize worker results in plain English. Don't read file paths or
    stack traces unless the user asks.
 4. If you don't know which project the user means, ask.
 5. Default to the user's currently selected model (provided in context).
+
+COURSE CORRECTION:
+When the user gives an instruction while a worker is running (the cockpit
+prepends a "Currently running:" preamble listing each running worker's id
+and last task), classify the new instruction:
+- Refinement of the same task ("use X instead", "also do Y"):
+    call interruptWorker(id) then immediately dispatchTask with
+    description='[original task summary] but with this adjustment:
+    [new instruction]'. The worker's prior progress is lost; the new
+    dispatch should mention what to keep.
+- New direction entirely ("forget this, do X"):
+    call interruptWorker(id) then dispatchTask({new task}).
+Always speak acknowledgement before any tool call so the user hears
+"Right, switching now, sir." first.
+
+WORKER EVENTS:
+When the cockpit sends you a [WORKER_EVENT] preamble (a single worker
+just spawned, finished, or exited), produce a brief one-line spoken
+summary for the user — nothing more, no tool calls unless the user is
+asking. Use natural English: "Working on it now, sir.", "Done, sir —
+3 files updated.", "Something went wrong, sir — [stderr tail]."
 
 TOOL CALLING PROTOCOL — READ CAREFULLY:
 You have NO built-in tools available (no Bash, no Read, no Edit, no MCP
@@ -334,8 +355,13 @@ export class JarvisAgent {
    * (a `result` envelope is observed). Tool calls embedded in his reply
    * are executed and their results are fed back as a follow-up turn,
    * recursively, until JARVIS replies with no tool calls.
+   *
+   * Optionally pass `runningWorkers` so the user turn is prefixed with a
+   * "Currently running:" preamble — JARVIS uses this to decide whether
+   * the new instruction is a refinement of an in-flight task (in which
+   * case he should interruptWorker first).
    */
-  async say(text: string): Promise<void> {
+  async say(text: string, runningWorkers?: RunningWorkerContext[]): Promise<void> {
     // Serialize concurrent callers — only one turn in flight at a time.
     const prev = this.sayQueue;
     let release: () => void = () => {};
@@ -344,7 +370,8 @@ export class JarvisAgent {
     });
     try {
       await prev.catch(() => {});
-      await this.sayInternal(text);
+      const decorated = decorateWithRunningWorkers(text, runningWorkers);
+      await this.sayInternal(decorated);
     } finally {
       // Bump last_active on every successful round-trip.
       try {
@@ -400,9 +427,71 @@ export class JarvisAgent {
     }
   }
 
+  /**
+   * Notify JARVIS that a worker checkpoint happened (spawn, result, exit).
+   * Ingested as a regular user turn whose text is a [WORKER_EVENT] block;
+   * JARVIS produces a one-line spoken summary the overlay can TTS.
+   *
+   * The 8-second throttle that prevents spam during a single worker's run
+   * lives client-side — the server fires every event it receives. Keeping
+   * the throttle on the client avoids a stateful per-worker timer on the
+   * server and lets the user disable narration with a single localStorage
+   * flag without round-tripping.
+   */
+  async notifyWorkerEvent(event: {
+    workerId: string;
+    kind: 'spawn' | 'result' | 'exit' | string;
+    summary: string;
+  }): Promise<void> {
+    const text = formatWorkerEvent(event);
+    await this.say(text);
+  }
+
   shutdown(): void {
     this.unsubscribe();
   }
+}
+
+// ─── Helpers: prompt decoration ────────────────────────────────────────────
+
+export type RunningWorkerContext = {
+  id: string;
+  slug?: string;
+  lastPrompt?: string;
+};
+
+export function decorateWithRunningWorkers(
+  text: string,
+  runningWorkers?: RunningWorkerContext[],
+): string {
+  if (!runningWorkers || runningWorkers.length === 0) return text;
+  const lines = runningWorkers.map((w) => {
+    const label = w.slug ? ` (${w.slug})` : '';
+    const task = w.lastPrompt ? ` on task: ${truncate(w.lastPrompt, 200)}` : '';
+    return `  - ${w.id}${label}${task}`;
+  });
+  return [
+    '[CONTEXT]',
+    'Currently running workers (you spawned these — consider course-correction rules):',
+    ...lines,
+    '',
+    text,
+  ].join('\n');
+}
+
+export function formatWorkerEvent(event: {
+  workerId: string;
+  kind: string;
+  summary: string;
+}): string {
+  return [
+    `[WORKER_EVENT] kind=${event.kind} worker=${event.workerId}`,
+    event.summary,
+  ].join('\n');
+}
+
+function truncate(s: string, n: number): string {
+  return s.length > n ? s.slice(0, n - 1) + '…' : s;
 }
 
 // ─── Persistence helper ────────────────────────────────────────────────────
