@@ -51,8 +51,21 @@ const GitCommitBody = z.object({
   message: z.string().min(1),
 });
 
+const JarvisRunningWorker = z.object({
+  id: z.string().min(1),
+  slug: z.string().optional(),
+  lastPrompt: z.string().optional(),
+});
+
 const JarvisSayBody = z.object({
   text: z.string().min(1).max(4000),
+  runningJarvisWorkers: z.array(JarvisRunningWorker).max(20).optional(),
+});
+
+const JarvisEventBody = z.object({
+  workerId: z.string().min(1),
+  kind: z.enum(['spawn', 'result', 'exit']),
+  summary: z.string().min(1).max(2000),
 });
 
 export function buildHttpApp(
@@ -368,8 +381,27 @@ export function buildHttpApp(
     // to his agentId. We return 202 immediately so the overlay can render
     // "thinking…" without holding the HTTP connection open for the whole
     // round-trip (which may include multi-hop tool calls).
-    jarvisAgent.say(parsed.data.text).catch((err: Error) => {
-      console.warn('[cockpit] jarvis.say failed:', err.message);
+    jarvisAgent
+      .say(parsed.data.text, parsed.data.runningJarvisWorkers)
+      .catch((err: Error) => {
+        console.warn('[cockpit] jarvis.say failed:', err.message);
+      });
+    return c.json({ ok: true, agentId: jarvisAgent.agentId }, 202);
+  });
+
+  // M3.4 — worker checkpoint relay. The cockpit's worker-watcher posts to
+  // this endpoint when a JARVIS-spawned worker spawns / finishes / exits;
+  // JARVIS ingests it as a turn and produces a one-line spoken summary the
+  // overlay TTS picks up. The 8s-per-worker throttle lives on the client.
+  app.post('/api/jarvis/event', async (c) => {
+    if (!jarvisAgent) return c.json({ error: { code: 'JARVIS_DISABLED' } }, 503);
+    const body = await c.req.json().catch(() => null);
+    const parsed = JarvisEventBody.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: { code: 'VALIDATION_ERROR', issues: parsed.error.issues } }, 400);
+    }
+    jarvisAgent.notifyWorkerEvent(parsed.data).catch((err: Error) => {
+      console.warn('[cockpit] jarvis.notifyWorkerEvent failed:', err.message);
     });
     return c.json({ ok: true, agentId: jarvisAgent.agentId }, 202);
   });
