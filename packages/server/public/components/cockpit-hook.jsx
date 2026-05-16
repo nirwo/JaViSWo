@@ -157,6 +157,57 @@ function CockpitProvider({ children }) {
   // conversation).
   const [jarvisSpeaking, setJarvisSpeaking] = React.useState(false);
 
+  // M3.10 — iOS audio autoplay unlock.
+  //
+  // Safari + Chrome on iOS block HTMLAudioElement.play() outside a
+  // synchronous user-gesture handler. A click in JarvisOverlay starts
+  // a recording (synchronous), then async fetch+play happens 5+ seconds
+  // later — by then iOS often considers the gesture token expired and
+  // refuses to play. Symptom: silent JARVIS on iPhone even though MP3
+  // arrives correctly.
+  //
+  // Standard workaround: on the very first user pointerdown anywhere
+  // in the page, play a tiny silent buffer through AudioContext to
+  // "prime" the audio session. After that, HTMLAudioElement.play()
+  // works for the rest of the session even from async callbacks.
+  const audioUnlockedRef = React.useRef(false);
+  React.useEffect(() => {
+    const unlock = () => {
+      if (audioUnlockedRef.current) return;
+      try {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        const ctx = new Ctx();
+        const promise = ctx.resume();
+        // Play a 1-frame silent buffer to fully prime iOS Safari.
+        const buf = ctx.createBuffer(1, 1, 22050);
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        src.connect(ctx.destination);
+        src.start(0);
+        if (promise && typeof promise.then === 'function') {
+          promise.then(() => { audioUnlockedRef.current = true; })
+                 .catch(() => {});
+        } else {
+          audioUnlockedRef.current = true;
+        }
+      } catch {
+        // Older browser or blocked context — give up silently. The
+        // fallback path (browser SpeechSynthesis) still works.
+      }
+    };
+    // Capture-phase listener so we unlock BEFORE any synchronous
+    // click handler runs another play() that might fail first.
+    document.addEventListener('pointerdown', unlock, { once: true, capture: true });
+    document.addEventListener('touchstart', unlock, { once: true, capture: true });
+    document.addEventListener('keydown', unlock, { once: true, capture: true });
+    return () => {
+      document.removeEventListener('pointerdown', unlock, { capture: true });
+      document.removeEventListener('touchstart', unlock, { capture: true });
+      document.removeEventListener('keydown', unlock, { capture: true });
+    };
+  }, []);
+
   // Hide tool work — collapses tool/thinking chips into micro-pills
   const [hideToolWork, setHideToolWork] = React.useState(
     () => localStorage.getItem('cockpit:hide-tool-work') === '1',

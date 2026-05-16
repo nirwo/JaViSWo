@@ -1970,3 +1970,97 @@ body.twk-flash .twk-panel { animation: twkFlash 1.1s ease-out 1; }
   0%, 100% { transform: scale(1.0); opacity: 1.0; }
   50%      { transform: scale(1.3); opacity: 0.7; }
 }
+
+/* ─── M3.10: Mobile responsive + iOS polish ─────────────────────────────── */
+
+/* iOS Safari otherwise auto-zooms when focusing inputs <16px font-size.
+   Apply to all textareas + inputs to keep the viewport stable. */
+@media (pointer: coarse) {
+  textarea, input[type="text"], input[type="search"] {
+    font-size: 16px !important;
+  }
+}
+
+/* Phone-sized portrait: stack everything, full-width center, sticky composer */
+@media (max-width: 680px) {
+  /* Reclaim the safe-area-inset on iPhone notch / home indicator. */
+  body { padding-bottom: env(safe-area-inset-bottom, 0); }
+
+  /* Topbar: compact — hide non-essentials, big touch targets. */
+  .topbar {
+    height: 52px;
+    padding: 0 10px;
+    gap: 6px;
+  }
+  .brand-name { font-size: 13px; }
+  .brand-name span { display: none; }      /* drop "· agent console" */
+  .topbar-right { gap: 4px; }
+  .token-meter { display: none; }          /* tokens + cost — drop on phone */
+  .icon-btn { min-width: 40px; min-height: 40px; }  /* Apple HIG touch size */
+  .avatar { width: 36px; height: 36px; font-size: 12px; }
+
+  /* CenterStage: full width, more breathing room. */
+  .shell { grid-template-columns: 1fr; }
+  .center { padding: 0; }
+  .center-tabs { gap: 2px; padding: 6px 8px; }
+  .center-tab { padding: 6px 10px; font-size: 11px; min-height: 36px; }
+
+  /* Chat thread: bigger text, more padding, comfortable scroll. */
+  .chat { padding: 12px 12px 120px; }       /* bottom padding clears composer */
+  .chat-bubble { font-size: 14px; line-height: 1.5; padding: 12px 14px; }
+
+  /* Composer: sticky bottom + safe-area + 16px font (no zoom). */
+  .composer {
+    position: sticky;
+    bottom: 0;
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+    box-shadow: 0 -8px 24px rgba(0,0,0,0.4);
+  }
+  .composer-input {
+    font-size: 16px !important;
+    min-height: 44px;
+    padding: 10px 12px;
+  }
+  .composer-actions .icon-btn { min-width: 44px; min-height: 44px; }
+
+  /* JARVIS orb: tighter on tiny screens. */
+  .jarvis-orb { width: 160px; height: 160px; }
+  .jarvis-headline { font-size: 18px; }
+  .jarvis-transcript { font-size: 14px; padding: 12px 16px; max-width: calc(100vw - 32px); }
+  .jarvis-hint { font-size: 10px; padding: 0 16px; text-align: center; }
+
+  /* Status pill: don't overlap the composer when JARVIS is enabled. */
+  .jarvis-pill {
+    bottom: max(96px, calc(96px + env(safe-area-inset-bottom)));
+    right: 12px;
+    max-width: calc(100vw - 24px);
+    font-size: 10px;
+  }
+  .jarvis-pill-text { max-width: calc(100vw - 90px); }
+
+  /* Boot sequence: scale orb on tiny screens. */
+  .boot-orb { width: 80px; height: 80px; }
+  .boot-name { font-size: 24px; }
+
+  /* Tweaks panel: full-width drawer on phone. */
+  .twk-panel {
+    width: min(96vw, 360px);
+    right: 8px;
+    bottom: max(8px, env(safe-area-inset-bottom));
+  }
+
+  /* Folder picker modal: phone-friendly */
+  .picker-overlay { padding: 12px; }
+  .picker-modal { max-width: 100%; max-height: calc(100vh - 24px); }
+}
+
+/* Landscape on phone (rare but handle gracefully) */
+@media (max-width: 900px) and (orientation: landscape) {
+  .jarvis-orb { width: 120px; height: 120px; }
+  .topbar { height: 44px; }
+}
+
+/* Larger fonts overall on devices that the user explicitly enlarges (iOS) */
+@media (prefers-contrast: more) {
+  .chat-bubble, .composer-input { font-size: 16px !important; }
+}
