@@ -43,7 +43,7 @@ In the UI you can:
 
 ```bash
 cd docker
-./up.sh           # DNS only — keep the cockpit's own HTTPS on :8788
+./up.sh           # DNS only — keep the cockpit's own HTTPS on :9788
 ./up.sh nginx     # DNS + nginx — gets you https://javiswo.local on :443
 ```
 
@@ -70,7 +70,7 @@ gets a DHCP lease will use it automatically; no per-device config.
 - **Windows:** Settings → Network & Internet → Wi-Fi → Hardware properties
   → DNS server assignment → Edit → IPv4 → enter the Mac's IP.
 
-After that, `https://javiswo.local:8788` (or `https://javiswo.local` if
+After that, `https://javiswo.local:9788` (or `https://javiswo.local` if
 you ran with `nginx`) works from any of those devices.
 
 ## Trust the cert on each device
@@ -80,7 +80,7 @@ warning-free browsing, install that CA on each device:
 
 - **This Mac:** `sudo mkcert -install` once. After that, Chrome / Safari
   / Firefox all trust the cert.
-- **iPhone:** open `http://javiswo.local:8787/tls/ca.pem` in Safari →
+- **iPhone:** open `http://javiswo.local:9787/tls/ca.pem` in Safari →
   Allow → Settings → General → VPN & Device Management → install the
   profile → Settings → General → About → Certificate Trust Settings →
   toggle on for the `mkcert` root.
@@ -173,7 +173,7 @@ You don't have to. Two narrower options:
 1. **Just this Mac** — install the resolver files (`/etc/resolver/`) and
    skip the per-device DNS setup on iPhone / others. Only this Mac can
    reach `javiswo.local`; iPhone needs to use the LAN IP
-   (`https://10.x.x.x:8788`).
+   (`https://10.x.x.x:9788`).
 
 2. **Just this Mac + iPhone** — install resolvers on Mac, manually set
    primary DNS to this Mac's IP + secondary 1.1.1.1 on iPhone only.

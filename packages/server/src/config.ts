@@ -93,7 +93,10 @@ export function loadConfig(): CockpitConfig {
   const absPublic = join(import.meta.dirname, '..', 'public');
   return {
     host: process.env.COCKPIT_HOST ?? '0.0.0.0',
-    port: Number(process.env.COCKPIT_PORT ?? 8787),
+    // 9787/9788 default — chosen to avoid collisions with common dev
+    // servers and the user's other Docker projects (e.g. financehome-ocr
+    // claims 8787). Override via COCKPIT_PORT / COCKPIT_HTTPS_PORT.
+    port: Number(process.env.COCKPIT_PORT ?? 9787),
     publicDir: relative(process.cwd(), absPublic),
     roots: loadRoots(),
   };

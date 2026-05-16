@@ -174,7 +174,7 @@ echo
 bold "7. iPhone setup (install root CA so Safari trusts the cockpit)"
 echo
 echo "   1. On iPhone Safari, open:"
-echo "          http://$PRIMARY_IP:8787/tls/ca.pem"
+echo "          http://$PRIMARY_IP:9787/tls/ca.pem"
 echo "      (HTTP is fine for downloading the CA itself.)"
 echo "   2. Safari prompts 'Allow' to download a configuration profile"
 echo "      → tap Allow."
@@ -184,7 +184,7 @@ echo "   4. Settings → General → About → Certificate Trust Settings →"
 echo "      toggle ON for 'mkcert development CA <hostname>'."
 echo
 echo "   After step 5 (DNS) and step 6 (CA), iPhone can open:"
-echo "       https://javiswo.local:8788    (cockpit's own HTTPS)"
+echo "       https://javiswo.local:9788    (cockpit's own HTTPS)"
 echo "       https://javiswo.local         (if you brought up nginx)"
 echo
 

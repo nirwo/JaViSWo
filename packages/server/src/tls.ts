@@ -68,10 +68,17 @@ function mdnsHosts(): string[] {
   for (const e of extras) {
     if (!out.includes(e)) out.push(e);
   }
-  // Always include 'javiswo.local' / 'cockpit.local' as friendly aliases —
-  // the user can point them at this machine via /etc/hosts or by renaming
-  // their LocalHostName, and the cert will already cover them.
-  for (const alias of ['javiswo.local', 'cockpit.local', 'jarvis.local']) {
+  // Cert SAN covers every TLD we publish the JaViSWo aliases under.
+  // .local works only for the host Mac (via /etc/resolver/) — iOS short-
+  // circuits *.local to mDNS multicast and won't ask Pi-hole. So we ALSO
+  // publish under .lan (de facto convention) and .home.arpa (RFC 8375)
+  // — iPhone resolves those via unicast DNS to Pi-hole correctly.
+  const aliases = [
+    'javiswo.lan', 'cockpit.lan', 'jarvis.lan',
+    'javiswo.home.arpa', 'cockpit.home.arpa', 'jarvis.home.arpa',
+    'javiswo.local', 'cockpit.local', 'jarvis.local',
+  ];
+  for (const alias of aliases) {
     if (!out.includes(alias)) out.push(alias);
   }
   return out;

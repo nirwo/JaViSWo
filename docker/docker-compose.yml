@@ -43,7 +43,17 @@ services:
       # Custom DNS records for the JaViSWo aliases. Pi-hole v6 reads
       # these directly from the env (semicolon-separated). HOST_IP comes
       # from .env via docker compose substitution.
-      FTLCONF_dns_hosts: "${HOST_IP} javiswo.local;${HOST_IP} cockpit.local;${HOST_IP} jarvis.local"
+      #
+      # Important: .local is reserved for mDNS (RFC 6762). iOS Safari
+      # short-circuits *.local to multicast and won't ask Pi-hole. So
+      # we publish the SAME machine under three TLDs:
+      #   .lan        — de facto convention, works on iOS via unicast
+      #   .home.arpa  — RFC 8375 official home-network TLD
+      #   .local      — kept for the host Mac (uses /etc/resolver/)
+      FTLCONF_dns_hosts: >-
+        ${HOST_IP} javiswo.lan;${HOST_IP} cockpit.lan;${HOST_IP} jarvis.lan;
+        ${HOST_IP} javiswo.home.arpa;${HOST_IP} cockpit.home.arpa;${HOST_IP} jarvis.home.arpa;
+        ${HOST_IP} javiswo.local;${HOST_IP} cockpit.local;${HOST_IP} jarvis.local
       # Disable DHCP — we only want Pi-hole as a DNS resolver, not a
       # DHCP server (your router already does DHCP).
       FTLCONF_dhcp_active: "false"

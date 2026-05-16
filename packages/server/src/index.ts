@@ -91,9 +91,9 @@ const httpServer = serve(
 
 // HTTPS — browsers require a secure context for mic + speech APIs over LAN
 // IPs. We serve a parallel HTTPS listener on COCKPIT_HTTPS_PORT (default
-// 8788). Disable with COCKPIT_HTTPS=false.
+// 9788). Disable with COCKPIT_HTTPS=false.
 const httpsEnabled = (process.env.COCKPIT_HTTPS ?? 'true') !== 'false';
-const httpsPort = Number(process.env.COCKPIT_HTTPS_PORT ?? 8788);
+const httpsPort = Number(process.env.COCKPIT_HTTPS_PORT ?? 9788);
 let httpsServer: import('node:https').Server | undefined;
 if (httpsEnabled) {
   const tls = ensureTlsCert();
