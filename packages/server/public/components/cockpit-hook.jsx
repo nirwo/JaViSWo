@@ -87,6 +87,22 @@ function CockpitProvider({ children }) {
     try { localStorage.setItem('cockpit:tts', v ? '1' : '0'); } catch {}
   }, []);
 
+  // JARVIS voice (M3.4) — defaults ON. Independent of `ttsEnabled` (which
+  // governs worker-text TTS); this one controls speaking JARVIS's own
+  // replies + the spawn/result/exit narration the worker-watcher posts.
+  const [jarvisVoice, setJarvisVoiceState] = React.useState(
+    () => localStorage.getItem('cockpit:jarvis-voice') !== '0',
+  );
+  const setJarvisVoice = React.useCallback((v) => {
+    setJarvisVoiceState(v);
+    try { localStorage.setItem('cockpit:jarvis-voice', v ? '1' : '0'); } catch {}
+    if (!v) {
+      // Cancel any in-flight utterance immediately so toggling off silences
+      // JARVIS without waiting for the current sentence to finish.
+      try { speechSynthesis.cancel(); } catch {}
+    }
+  }, []);
+
   // JARVIS mode — voice-first orchestrator overlay (M3.2)
   const [jarvisEnabled, setJarvisEnabledState] = React.useState(
     () => localStorage.getItem('cockpit:jarvis') === '1',
@@ -118,6 +134,8 @@ function CockpitProvider({ children }) {
     setJarvisTranscript('');
     setJarvisError(null);
     setJarvisReply('');
+    // Stop any in-flight TTS so dismiss is truly silent.
+    try { speechSynthesis.cancel(); } catch {}
   }, []);
 
   // M3.3: JARVIS reply rendered in the overlay. We aggregate the text
@@ -507,15 +525,185 @@ function CockpitProvider({ children }) {
     setJarvisThinking(a.status === 'running');
   }, [agents, jarvisAgentId]);
 
+  // M3.4 — TTS narration of JARVIS's own replies. Speaks whenever jarvisReply
+  // changes meaningfully. We only utter the *new* tail (delta since last
+  // spoken text) so the user doesn't re-hear the whole sentence as JARVIS
+  // streams. A 60ms coalescing window prevents micro-stutter from tiny
+  // partial-text deltas.
+  const lastSpokenRef = React.useRef('');
+  const lastSpeakAtRef = React.useRef(0);
+  const speakTimerRef = React.useRef(null);
+  React.useEffect(() => {
+    if (!jarvisVoice) return undefined;
+    if (!jarvisReply) return undefined;
+    // Compute the delta — what's new since we last spoke.
+    const prev = lastSpokenRef.current;
+    let delta = '';
+    if (jarvisReply.startsWith(prev)) {
+      delta = jarvisReply.slice(prev.length).trim();
+    } else {
+      // Reply was rewritten (e.g. partial_text → text replace) — speak
+      // only the trailing fragment we haven't heard yet, conservatively.
+      delta = jarvisReply.trim();
+    }
+    if (!delta) return undefined;
+    // Coalesce: if the last utterance fired <60ms ago, debounce by 60ms so
+    // bursts of partial_text deltas become a single utterance.
+    const now = Date.now();
+    const since = now - lastSpeakAtRef.current;
+    const fire = () => {
+      try {
+        const u = new SpeechSynthesisUtterance(delta);
+        u.rate = 0.95;
+        u.pitch = 0.9;
+        const voices = speechSynthesis.getVoices();
+        const v = voices.find(x => /Daniel|Bruce|Arthur|Reed/i.test(x.name))
+          ?? voices.find(x => /Alex/i.test(x.name))
+          ?? voices.find(x => x.lang.startsWith('en'));
+        if (v) u.voice = v;
+        speechSynthesis.speak(u);
+        lastSpokenRef.current = jarvisReply;
+        lastSpeakAtRef.current = Date.now();
+      } catch {
+        // SpeechSynthesis unavailable — silent failure is fine.
+      }
+    };
+    if (since < 60) {
+      if (speakTimerRef.current) clearTimeout(speakTimerRef.current);
+      speakTimerRef.current = setTimeout(fire, 60 - since);
+      return () => {
+        if (speakTimerRef.current) {
+          clearTimeout(speakTimerRef.current);
+          speakTimerRef.current = null;
+        }
+      };
+    }
+    fire();
+    return undefined;
+  }, [jarvisReply, jarvisVoice]);
+
+  // Reset the last-spoken cursor whenever JARVIS starts a fresh reply (the
+  // overlay clears jarvisReply on a new turn) so the next reply isn't
+  // suppressed as a "no-op delta".
+  React.useEffect(() => {
+    if (jarvisReply === '') lastSpokenRef.current = '';
+  }, [jarvisReply]);
+
+  // M3.4 — Worker checkpoint watcher. For each JARVIS-spawned agent we POST
+  // a brief "[WORKER_EVENT]" turn to JARVIS at three points: spawn (first
+  // appearance), result (turn complete), exit (non-zero code). A per-worker
+  // 8-second throttle prevents spam during a single worker's run.
+  //
+  // We suppress all narration during the first 3s after mount so the WS
+  // replay of historical envelopes (which transitions old workers from
+  // idle → running → completed in quick succession) doesn't re-narrate them.
+  const lastWorkerEventAtRef = React.useRef(new Map()); // workerId → ts
+  const seenWorkerStatusRef = React.useRef(new Map()); // workerId → prevStatus
+  const postedSpawnRef = React.useRef(new Set()); // workerIds we've narrated spawn for
+  const watcherSilentUntilRef = React.useRef(Date.now() + 3000);
+  React.useEffect(() => {
+    if (!jarvisVoice) return;
+    if (!jarvisAgentId) return;
+    const now = Date.now();
+    const silent = now < watcherSilentUntilRef.current;
+    const post = (workerId, kind, summary) => {
+      if (silent) return; // bootstrap window — skip narration entirely
+      const last = lastWorkerEventAtRef.current.get(workerId) ?? 0;
+      if (now - last < 8000) return; // throttle
+      lastWorkerEventAtRef.current.set(workerId, now);
+      fetch('/api/jarvis/event', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ workerId, kind, summary }),
+      }).catch(() => {});
+    };
+    for (const [id, a] of agents.entries()) {
+      if (a.spawnedBy !== 'jarvis') continue;
+      if (id === jarvisAgentId) continue; // JARVIS himself
+      const prev = seenWorkerStatusRef.current.get(id);
+      const cur = a.status;
+      // Newly-discovered worker that just started — narrate spawn (once
+      // per worker, only when it's actually running). On page reload we
+      // pre-seed the seen-status map with whatever status the agent is in
+      // before this watcher gets to compare, so we don't re-narrate spawn
+      // for completed-on-load workers.
+      if (!postedSpawnRef.current.has(id) && cur === 'running') {
+        postedSpawnRef.current.add(id);
+        post(id, 'spawn', `worker spawned on ${a.projectPath || 'unknown project'} — ${a.slug || id}`);
+      } else if (prev === 'running' && cur === 'completed') {
+        // Summarize: file count from todos? Use simple message — JARVIS reads
+        // it and produces a natural-language line.
+        post(id, 'result', `turn complete — ${a.slug || id}; tokens=${a.tokens}`);
+      } else if (prev === 'running' && cur === 'errored') {
+        // Pull last stderr text if any
+        const lastErr = [...a.messages].reverse().find(m => m.kind === 'stderr');
+        const tail = lastErr ? String(lastErr.text || '').slice(-200) : '';
+        post(id, 'exit', `worker exited with non-zero status — ${tail}`);
+      }
+      seenWorkerStatusRef.current.set(id, cur);
+    }
+  }, [agents, jarvisVoice, jarvisAgentId]);
+
+  // M3.4 — Poll for new JARVIS-spawned workers. JARVIS dispatchTask creates
+  // a worker server-side; the client doesn't get notified until it subscribes
+  // to that agentId. A lightweight 4s poll of /api/agents finds new workers
+  // tagged spawned_by='jarvis' and registers them so the worker-watcher
+  // above can react.
+  React.useEffect(() => {
+    if (!jarvisAgentId) return undefined;
+    let alive = true;
+    const tick = async () => {
+      try {
+        const r = await fetch('/api/agents');
+        if (!r.ok || !alive) return;
+        const body = await r.json();
+        const list = body.agents ?? [];
+        for (const a of list) {
+          if (a.spawnedBy !== 'jarvis') continue;
+          if (a.id === jarvisAgentId) continue;
+          if (!agentsRef.current.has(a.id)) {
+            const promptText = a.firstPrompt || '';
+            const slug = promptText.slice(0, 30).trim() + (promptText.length > 30 ? '…' : '') || a.id.slice(0, 12);
+            ensureAgent(a.id, {
+              slug,
+              projectPath: a.projectPath,
+              turn: a.turn ?? 1,
+              spawnedBy: 'jarvis',
+              status: 'running',
+            });
+          }
+        }
+      } catch {
+        // ignore — next tick retries
+      }
+    };
+    tick();
+    const id = setInterval(tick, 4000);
+    return () => { alive = false; clearInterval(id); };
+  }, [jarvisAgentId, ensureAgent]);
+
   const sayToJarvis = React.useCallback(async (text) => {
     if (!text || !text.trim()) return { ok: false, reason: 'empty' };
     setJarvisReply('');
     setJarvisThinking(true);
+    // M3.4 — collect JARVIS-spawned workers that are still running so JARVIS
+    // can decide whether the new instruction is a refinement (interrupt +
+    // dispatch) or a new direction.
+    const runningJarvisWorkers = [];
+    for (const a of agentsRef.current.values()) {
+      if (a.spawnedBy === 'jarvis' && a.status === 'running') {
+        runningJarvisWorkers.push({
+          id: a.id,
+          slug: a.slug,
+          lastPrompt: a.lastPrompt ?? '',
+        });
+      }
+    }
     try {
       const r = await fetch('/api/jarvis/say', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, runningJarvisWorkers }),
       });
       if (!r.ok) {
         setJarvisThinking(false);
@@ -643,6 +831,8 @@ function CockpitProvider({ children }) {
     clientCount,
     ttsEnabled,
     setTts,
+    jarvisVoice,
+    setJarvisVoice,
     hideToolWork,
     setHide,
     editorFile,

@@ -32,7 +32,7 @@ const ACCENT_PALETTES = [
 
 const App = () => {
   const [tweaks, set] = useTweaks(TWEAK_DEFAULTS);
-  const { ttsEnabled, setTts, hideToolWork, setHide } = useCockpit();
+  const { ttsEnabled, setTts, jarvisVoice, setJarvisVoice, hideToolWork, setHide } = useCockpit();
 
   const [permission, setPermission] = React.useState(tweaks.permission);
 
@@ -141,6 +141,11 @@ const App = () => {
             label="Voice reply (TTS)"
             value={ttsEnabled}
             onChange={v => setTts(v)}
+          />
+          <TweakToggle
+            label="JARVIS voice"
+            value={jarvisVoice}
+            onChange={v => setJarvisVoice(v)}
           />
           <TweakToggle
             label="Approval prompt"
