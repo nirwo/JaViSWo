@@ -14,7 +14,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { networkInterfaces, homedir } from 'node:os';
+import { hostname, networkInterfaces, homedir } from 'node:os';
 import { join } from 'node:path';
 
 const CERT_VALIDITY_DAYS = 825; // Apple's max
@@ -52,6 +52,46 @@ function which(bin: string): string | null {
   }
 }
 
+// mDNS hostnames — every Mac / iPhone on the LAN can resolve <name>.local
+// via Bonjour without any DNS configuration. We include the machine's
+// current LocalHostName and any extras from COCKPIT_TLS_EXTRA_HOSTS so the
+// cert is valid for whichever name the user opens.
+function mdnsHosts(): string[] {
+  const out: string[] = [];
+  const h = hostname().replace(/\.local$/, '');
+  if (h) {
+    out.push(`${h}.local`);
+    out.push(h);
+  }
+  const extras = (process.env.COCKPIT_TLS_EXTRA_HOSTS ?? '')
+    .split(',').map(s => s.trim()).filter(Boolean);
+  for (const e of extras) {
+    if (!out.includes(e)) out.push(e);
+  }
+  // Always include 'javiswo.local' / 'cockpit.local' as friendly aliases —
+  // the user can point them at this machine via /etc/hosts or by renaming
+  // their LocalHostName, and the cert will already cover them.
+  for (const alias of ['javiswo.local', 'cockpit.local', 'jarvis.local']) {
+    if (!out.includes(alias)) out.push(alias);
+  }
+  return out;
+}
+
+export function getCaRootPath(): string | null {
+  if (which('mkcert') === null) return null;
+  try {
+    const out = execFileSync('mkcert', ['-CAROOT'], {
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const dir = out.toString('utf-8').trim();
+    if (!dir) return null;
+    const ca = join(dir, 'rootCA.pem');
+    return existsSync(ca) ? ca : null;
+  } catch {
+    return null;
+  }
+}
+
 function existsAndFresh(path: string): boolean {
   if (!existsSync(path)) return false;
   try {
@@ -65,7 +105,7 @@ function existsAndFresh(path: string): boolean {
 
 function generateWithMkcert(dir: string, keyPath: string, certPath: string): boolean {
   const ips = lanIPs();
-  const hosts = ['localhost', '127.0.0.1', '::1', ...ips];
+  const hosts = ['localhost', '127.0.0.1', '::1', ...mdnsHosts(), ...ips];
   try {
     execFileSync('mkcert', ['-install'], { stdio: ['ignore', 'pipe', 'pipe'] });
     execFileSync(
@@ -82,10 +122,12 @@ function generateWithMkcert(dir: string, keyPath: string, certPath: string): boo
 
 function generateWithOpenssl(keyPath: string, certPath: string): boolean {
   const ips = lanIPs();
-  // SAN list — every LAN IP plus localhost so the cert covers wherever the
-  // user opens the cockpit from.
+  const dnsHosts = mdnsHosts();
+  // SAN list — localhost + every mDNS .local hostname + every LAN IPv4 so
+  // the cert covers wherever the user opens the cockpit from.
   const sanLines = [
     'DNS.1 = localhost',
+    ...dnsHosts.map((h, i) => `DNS.${i + 2} = ${h}`),
     'IP.1 = 127.0.0.1',
     'IP.2 = ::1',
     ...ips.map((ip, i) => `IP.${i + 3} = ${ip}`),

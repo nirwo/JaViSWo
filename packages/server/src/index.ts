@@ -11,7 +11,7 @@ import { AgentSupervisor } from './supervisor.js';
 import { attachWebSocket } from './ws.js';
 import { initFileWatch, stopFileWatch } from './file-watch.js';
 import { PreviewManager } from './preview.js';
-import { ensureTlsCert, readTlsMaterial } from './tls.js';
+import { ensureTlsCert, getCaRootPath, readTlsMaterial } from './tls.js';
 
 const config = loadConfig();
 
@@ -70,6 +70,13 @@ if (httpsEnabled) {
               console.log(`[cockpit]   LAN voice URL: https://${ni.address}:${port}`);
             }
           }
+        }
+        // Surface the mkcert / nginx setup script so the user knows how
+        // to upgrade from "self-signed warning" to "fully trusted".
+        if (getCaRootPath()) {
+          console.log(`[cockpit]   Trusted-CA cert in use. iPhone install: http://<lan-ip>:${config.port}/tls/ca.pem`);
+        } else {
+          console.log('[cockpit]   For trusted certs (no browser warning) run: scripts/setup-network.sh');
         }
       },
     ) as unknown as import('node:https').Server;

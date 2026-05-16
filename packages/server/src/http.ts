@@ -13,6 +13,7 @@ import { gitBranch, gitStatus } from './git.js';
 import { transcribe } from './transcribe.js';
 import { loadDesignMd } from './design-md.js';
 import type { PreviewManager } from './preview.js';
+import { getCaRootPath } from './tls.js';
 
 const READ_MAX_BYTES = 1_000_000;
 
@@ -302,6 +303,40 @@ export function buildHttpApp(
 
   app.get('/api/clients', (c) => {
     return c.json({ count: getClientCount() });
+  });
+
+  // Serve the mkcert root CA so iPhone / other Macs on the LAN can install
+  // it via Safari → tap link → "Install Profile" → Settings → General →
+  // VPN & Device Management. After install, every cert signed by this CA
+  // (i.e., every JaViSWo server cert) is trusted on that device.
+  app.get('/tls/ca.pem', (c) => {
+    const caPath = getCaRootPath();
+    if (!caPath) {
+      return c.json(
+        {
+          error: {
+            code: 'NO_LOCAL_CA',
+            message: 'mkcert is not installed on this server. Run scripts/setup-network.sh first.',
+          },
+        },
+        404,
+      );
+    }
+    try {
+      const body = readFileSync(caPath);
+      return new Response(body, {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/x-x509-ca-cert',
+          'Content-Disposition': 'attachment; filename="javiswo-rootCA.pem"',
+        },
+      });
+    } catch (err) {
+      return c.json(
+        { error: { code: 'CA_READ_FAIL', detail: (err as Error).message } },
+        500,
+      );
+    }
   });
 
   app.post('/api/voice/transcribe', async (c) => {
