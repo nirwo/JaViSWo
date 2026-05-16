@@ -81,8 +81,33 @@ green "   ✓ Cert written to $COCKPIT_TLS_DIR/cert.pem"
 echo "   Covers: localhost, $CURRENT_HOSTNAME.local, javiswo.local, cockpit.local, jarvis.local, $LAN_IPS"
 echo
 
-# ── 4. Docker DNS ──────────────────────────────────────────────────────
-bold "4. Starting Docker DNS (resolves javiswo.local → this Mac's IP)..."
+# ── 4. Docker DNS + content filter profile ─────────────────────────────
+bold "4. Starting Docker DNS with content filtering"
+echo
+echo "   The dnsmasq container forwards general internet queries to"
+echo "   filtered upstream DNS servers. Pick a profile:"
+echo
+echo "     1) family  — Cloudflare Family + AdGuard Family"
+echo "                  Blocks: malware, phishing, ads, trackers,"
+echo "                  AND adult content. Recommended for households"
+echo "                  with kids. [default]"
+echo "     2) clean   — Cloudflare Malware + AdGuard Default"
+echo "                  Blocks: malware, ads, trackers (no adult filter)"
+echo "     3) adblock — AdGuard Default + Cloudflare 1.1.1.1"
+echo "                  Blocks: ads + trackers (no other filtering)"
+echo "     4) vanilla — 1.1.1.1 + 8.8.8.8"
+echo "                  No filtering. Fastest, no protection."
+echo
+read -r -p "   Choose [1-4, default 1]: " choice
+case "$choice" in
+  2) PROFILE="clean" ;;
+  3) PROFILE="adblock" ;;
+  4) PROFILE="vanilla" ;;
+  *) PROFILE="family" ;;
+esac
+export UPSTREAM_PROFILE="$PROFILE"
+echo "   Selected: $PROFILE"
+echo
 
 if ! command -v docker >/dev/null 2>&1; then
   yellow "   ⚠ Docker CLI not found. Install Docker Desktop from"
@@ -91,12 +116,12 @@ if ! command -v docker >/dev/null 2>&1; then
 elif ! docker info >/dev/null 2>&1; then
   yellow "   ⚠ Docker daemon isn't running. Open Docker Desktop and"
   yellow "     wait for the whale icon to settle, then run:"
-  yellow "         $REPO_ROOT/docker/up.sh"
+  yellow "         UPSTREAM_PROFILE=$PROFILE $REPO_ROOT/docker/up.sh"
 else
   pushd "$REPO_ROOT/docker" >/dev/null
-  ./up.sh
+  UPSTREAM_PROFILE="$PROFILE" ./up.sh
   popd >/dev/null
-  green "   ✓ DNS container running on this Mac at port 53"
+  green "   ✓ DNS container running on this Mac at port 53 with $PROFILE filtering"
 fi
 echo
 

@@ -59,6 +59,38 @@ else
 fi
 echo
 
+# 3.5. Content filter active?
+bold "3b. Content filter (malware + ads + adult blocking)"
+PROFILE="unknown"
+if [[ -f "$REPO_ROOT/docker/.env" ]]; then
+  PROFILE=$(grep '^UPSTREAM_PROFILE=' "$REPO_ROOT/docker/.env" | cut -d= -f2 || echo "?")
+fi
+echo "  Active profile: $PROFILE"
+
+# Cloudflare provides public test domains that resolve to 0.0.0.0
+# (blocked) on family/malware tiers and to a real IP on vanilla.
+# These give us a deterministic probe.
+malware_test=$(dig @127.0.0.1 +short +time=2 malware.testcategory.com 2>/dev/null | head -1)
+adult_test=$(dig @127.0.0.1 +short +time=2 nsfw.testcategory.com 2>/dev/null | head -1)
+
+# Per Cloudflare docs, blocked queries return 0.0.0.0 or no answer.
+if [[ "$malware_test" == "0.0.0.0" ]] || [[ -z "$malware_test" ]]; then
+  green "malware.testcategory.com BLOCKED (filter active)"
+else
+  yellow "malware.testcategory.com resolved to $malware_test"
+  yellow "  (expected blocked — filter may be off or test domain expired)"
+fi
+
+if [[ "$PROFILE" == "family" ]]; then
+  if [[ "$adult_test" == "0.0.0.0" ]] || [[ -z "$adult_test" ]]; then
+    green "nsfw.testcategory.com BLOCKED (family filter active)"
+  else
+    yellow "nsfw.testcategory.com resolved to $adult_test"
+    yellow "  (expected blocked on family profile)"
+  fi
+fi
+echo
+
 # 4. Router-local records still answer (if router has any)
 bold "4. Router-local records (do you have any?)"
 if [[ -f /etc/resolv.conf ]]; then

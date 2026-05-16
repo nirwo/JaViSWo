@@ -30,18 +30,31 @@ services:
     environment:
       HTTP_USER: admin
       HTTP_PASS: ${DNS_ADMIN_PASS:-changeme}
-    # Forwarding order matters: try the LAN router first (so router-local
-    # DNS records like nas.lan keep working), then public DNS as fallback.
-    # ${ROUTER_IP} comes from .env; setup-network.sh auto-detects it from
-    # the default route.
+    # Forwarding rules:
+    #
+    #   1. JaViSWo aliases (javiswo.local, cockpit.local, jarvis.local)
+    #      → answered locally with ${HOST_IP}.
+    #
+    #   2. SCOPED router lookups — only queries for the router's local
+    #      domains (.lan, .home.arpa, in-addr.arpa for private subnets)
+    #      go to ${ROUTER_IP}. That keeps router-local records (nas.lan,
+    #      printer.lan, smart-home device names) working WITHOUT routing
+    #      general internet queries through your ISP's unfiltered DNS.
+    #
+    #   3. General internet queries → ${UPSTREAM_DNS_1} and
+    #      ${UPSTREAM_DNS_2} (family-safe by default — Cloudflare 1.1.1.3
+    #      + AdGuard 94.140.14.15). These block malware + phishing +
+    #      adult content + ads. Switch profile in .env.
     command: >
       --log-facility=-
       --address=/javiswo.local/${HOST_IP}
       --address=/cockpit.local/${HOST_IP}
       --address=/jarvis.local/${HOST_IP}
-      --server=${ROUTER_IP:-1.1.1.1}
-      --server=1.1.1.1
-      --server=8.8.8.8
+      --server=/lan/${ROUTER_IP}
+      --server=/home.arpa/${ROUTER_IP}
+      --server=/in-addr.arpa/${ROUTER_IP}
+      --server=${UPSTREAM_DNS_1:-1.1.1.3}
+      --server=${UPSTREAM_DNS_2:-94.140.14.15}
       --no-resolv
       --no-hosts
       --domain-needed

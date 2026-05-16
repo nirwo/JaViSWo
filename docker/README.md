@@ -72,6 +72,59 @@ dig @127.0.0.1 javiswo.local +short    # → Mac's LAN IP
 dig @127.0.0.1 cloudflare.com +short   # → real IP (upstream alive)
 ```
 
+## Content filtering — block ads, malware, and adult content
+
+dnsmasq doesn't filter on its own — but it forwards every non-JaViSWo
+query upstream to whatever DNS server you choose. By default, it
+forwards to **Cloudflare Family + AdGuard Family**, both of which
+block malware, phishing, ads, trackers, AND adult content. Result:
+every device on the LAN that uses this Mac as DNS gets that protection
+automatically, with no per-device profile install.
+
+### Pick a profile
+
+Edit `UPSTREAM_PROFILE` in `docker/.env`, or pass it inline:
+
+```bash
+UPSTREAM_PROFILE=family   ./docker/up.sh    # kid-safe (default)
+UPSTREAM_PROFILE=clean    ./docker/up.sh    # ads + malware, no porn block
+UPSTREAM_PROFILE=adblock  ./docker/up.sh    # ads only
+UPSTREAM_PROFILE=vanilla  ./docker/up.sh    # no filtering
+```
+
+| Profile | Primary DNS | Secondary DNS | Blocks |
+|---------|-------------|---------------|--------|
+| `family` (default) | Cloudflare 1.1.1.3 | AdGuard 94.140.14.15 | Malware, phishing, ads, trackers, adult content |
+| `clean` | Cloudflare 1.1.1.2 | AdGuard 94.140.14.14 | Malware, ads, trackers (no adult filter) |
+| `adblock` | AdGuard 94.140.14.14 | Cloudflare 1.1.1.1 | Ads + trackers only |
+| `vanilla` | Cloudflare 1.1.1.1 | Google 8.8.8.8 | Nothing — raw DNS |
+
+### Router-local records still work
+
+Even with content filtering active, dnsmasq scopes router lookups to
+LAN-only domains:
+
+```
+--server=/lan/${ROUTER_IP}        # nas.lan, printer.lan, etc → router
+--server=/home.arpa/${ROUTER_IP}  # IETF-standard LAN domain
+--server=/in-addr.arpa/${ROUTER_IP}  # reverse lookups for private IPs
+```
+
+So your existing router DNS entries (NAS, printer, smart-home devices)
+keep resolving through the router, while general internet queries go
+through the filtered upstream. Best of both worlds.
+
+### Verify the filter is active
+
+```bash
+./scripts/dns-health.sh
+```
+
+The health check now queries `malware.testcategory.com` (Cloudflare's
+public test domain) and asserts it's blocked. On the `family` profile
+it also tests `nsfw.testcategory.com`. Anything that should be blocked
+but resolves to a real IP triggers a yellow warning.
+
 ## Safety: won't this break my LAN?
 
 Putting the Mac in the DNS path is a real concern. The setup is hardened
