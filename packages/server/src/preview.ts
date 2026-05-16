@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess, type SpawnOptionsWithoutStdio } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
+import { createServer as createNetServer } from 'node:net';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 
@@ -63,17 +64,34 @@ async function findFreePort(): Promise<number> {
       return p;
     }
   }
+  // Range exhausted via usedPorts. Some entries are likely stale — sweep
+  // and release ports that aren't actually listening anymore.
+  for (const p of [...usedPorts]) {
+    if (await isPortFree(p)) usedPorts.delete(p);
+  }
+  // Retry once after the sweep.
+  for (let p = PORT_RANGE_START; p <= PORT_RANGE_END; p++) {
+    if (usedPorts.has(p)) continue;
+    if (await isPortFree(p)) {
+      usedPorts.add(p);
+      return p;
+    }
+  }
   throw new Error('No free port in preview range');
 }
 
 function isPortFree(port: number): Promise<boolean> {
   return new Promise((resolve) => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const net = require('node:net') as typeof import('node:net');
-    const srv = net.createServer();
-    srv.once('error', () => resolve(false));
+    const srv = createNetServer();
+    let settled = false;
+    const done = (free: boolean) => {
+      if (settled) return;
+      settled = true;
+      resolve(free);
+    };
+    srv.once('error', () => done(false));
     srv.once('listening', () => {
-      srv.close(() => resolve(true));
+      srv.close(() => done(true));
     });
     srv.listen(port, '127.0.0.1');
   });
@@ -181,6 +199,12 @@ export class PreviewManager {
     proc.on('error', (err: Error) => {
       status.status = 'errored';
       status.error = String(err.message);
+      // Critical: release the port on spawn error. Previously this only
+      // happened on 'exit', but spawn errors (ENOENT, EACCES, etc.) often
+      // never fire 'exit' since the child never started — leaving the port
+      // marked as used forever. Over many failed attempts the entire
+      // 9100-9199 range gets leaked, surfacing as "No free port".
+      usedPorts.delete(port);
     });
 
     proc.on('exit', (code: number | null) => {
