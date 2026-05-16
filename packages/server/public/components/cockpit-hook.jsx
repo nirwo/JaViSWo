@@ -171,6 +171,12 @@ function CockpitProvider({ children }) {
   // Keep a ref of current agents for use inside WS callbacks (avoids stale closure)
   const agentsRef = React.useRef(agents);
   React.useEffect(() => { agentsRef.current = agents; }, [agents]);
+  // Mirror jarvisAgentId in a ref so handleEnvelope (which is memoised
+  // with [updateAgent] only) can read the current value without going
+  // stale. Used to suppress the legacy browser-TTS path for JARVIS's
+  // own text envelopes — JARVIS has his own ElevenLabs path (M3.6).
+  const jarvisAgentIdRef = React.useRef(null);
+  React.useEffect(() => { jarvisAgentIdRef.current = jarvisAgentId; }, [jarvisAgentId]);
 
   // Refresh project file tree, git status, and DESIGN.md
   const refreshProjectData = React.useCallback(async () => {
@@ -337,8 +343,13 @@ function CockpitProvider({ children }) {
           };
         }
         case 'text': {
-          // TTS: speak final authoritative text if enabled
-          if (ttsEnabled && env.payload?.text) {
+          // TTS: speak final authoritative text if enabled — EXCEPT for
+          // JARVIS himself, who is voiced via /api/jarvis/voice
+          // (ElevenLabs) by a dedicated effect on jarvisReply. Without
+          // this guard, both paths fire for JARVIS turns and the browser
+          // SpeechSynthesis voice overlaps George's MP3.
+          const isJarvis = env.agentId === jarvisAgentIdRef.current;
+          if (ttsEnabled && env.payload?.text && !isJarvis) {
             try {
               const u = new SpeechSynthesisUtterance(env.payload.text);
               u.rate = 0.95;
