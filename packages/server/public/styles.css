@@ -57,21 +57,22 @@
   --space-8: 32px;
   --row: 36px;
 
-  /* radii */
-  --r-sm: 6px;
-  --r-md: 10px;
-  --r-lg: 14px;
-  --r-xl: 20px;
+  /* radii — cyber/HUD aesthetic uses tight corners. Pills stay round. */
+  --r-sm: 2px;
+  --r-md: 4px;
+  --r-lg: 6px;
+  --r-xl: 10px;
   --r-pill: 999px;
 
-  /* type */
-  --f-sans: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  /* type — chrome is monospace (cyber/terminal feel), serif kept for headlines */
+  --f-sans: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --f-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --f-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
   --f-serif: "Instrument Serif", ui-serif, Georgia, serif;
 
-  /* shadow */
-  --shadow-glow: 0 0 0 1px rgba(96,165,250,0.18), 0 24px 60px -20px rgba(37,99,235,0.45), 0 8px 24px -8px rgba(34,211,238,0.25);
-  --shadow-card: 0 1px 0 rgba(255,255,255,0.04) inset, 0 8px 24px -12px rgba(0,0,0,0.6);
+  /* shadow — sharper, more electric glow for cyber feel */
+  --shadow-glow: 0 0 0 1px rgba(34,211,238,0.42), 0 0 16px rgba(34,211,238,0.32), 0 0 32px rgba(59,130,246,0.18);
+  --shadow-card: 0 0 0 1px rgba(34,211,238,0.08) inset, 0 4px 12px -2px rgba(0,0,0,0.7);
 
   /* anim intensity multiplier set via tweaks (0..1.2) */
   --anim: 1;
@@ -100,51 +101,69 @@ body {
 
 #root { height: 100vh; width: 100vw; }
 
-/* ===== Aurora background ===== */
+/* ===== Cyber background: dense grid + scanlines + subtle hue glow ===== */
 .aurora {
   position: fixed; inset: 0;
   pointer-events: none;
   z-index: 0;
   overflow: hidden;
   background:
-    radial-gradient(60% 50% at 15% 20%, rgba(37,99,235,0.35), transparent 70%),
-    radial-gradient(50% 40% at 85% 10%, rgba(34,211,238,0.22), transparent 70%),
-    radial-gradient(70% 50% at 50% 100%, rgba(236,72,153,0.18), transparent 70%),
-    linear-gradient(180deg, var(--bg-0), var(--bg-1) 40%, var(--bg-0));
+    /* Subtle vignette toward edges so the HUD frame feels active */
+    radial-gradient(80% 60% at 50% 0%, rgba(34,211,238,0.10), transparent 60%),
+    radial-gradient(80% 60% at 50% 100%, rgba(37,99,235,0.10), transparent 60%),
+    var(--bg-0);
 }
-.aurora::before, .aurora::after {
+/* Slow scanline pass — gives the "monitor" feel without being epileptic */
+.aurora::before {
   content: "";
   position: absolute;
-  inset: -20%;
-  background:
-    radial-gradient(40% 30% at 30% 40%, rgba(96,165,250,0.35), transparent 65%),
-    radial-gradient(35% 25% at 70% 60%, rgba(34,211,238,0.28), transparent 65%);
-  filter: blur(40px);
-  animation: aurora-drift calc(28s / var(--anim, 1)) ease-in-out infinite alternate;
-  mix-blend-mode: screen;
-  opacity: 0.85;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(34,211,238,0.025) 0px,
+    rgba(34,211,238,0.025) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  animation: cyber-scanline-drift calc(8s / var(--anim, 1)) linear infinite;
 }
+/* Brighter "active scan line" sweeping vertically every ~10s */
 .aurora::after {
-  background:
-    radial-gradient(45% 30% at 60% 30%, rgba(244,114,182,0.25), transparent 65%),
-    radial-gradient(30% 25% at 20% 70%, rgba(34,211,238,0.22), transparent 65%);
-  animation-duration: calc(36s / var(--anim, 1));
-  animation-direction: alternate-reverse;
-  opacity: 0.7;
+  content: "";
+  position: absolute;
+  left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(34,211,238,0.50) 50%,
+    transparent 100%);
+  box-shadow: 0 0 12px rgba(34,211,238,0.45);
+  animation: cyber-scan-sweep calc(12s / var(--anim, 1)) linear infinite;
+  opacity: 0.6;
 }
-@keyframes aurora-drift {
-  0%   { transform: translate(0,0) scale(1) rotate(0deg); }
-  50%  { transform: translate(3%, -2%) scale(1.05) rotate(8deg); }
-  100% { transform: translate(-2%, 3%) scale(1.08) rotate(-6deg); }
+@keyframes cyber-scanline-drift {
+  0%   { transform: translateY(0); }
+  100% { transform: translateY(3px); }
+}
+@keyframes cyber-scan-sweep {
+  0%   { top: -2%; opacity: 0; }
+  10%  { opacity: 0.8; }
+  90%  { opacity: 0.8; }
+  100% { top: 102%; opacity: 0; }
 }
 
+/* Dense grid — cyber/HUD signature. Tighter spacing + brighter than before. */
 .grid-overlay {
   position: fixed; inset: 0; z-index: 1; pointer-events: none;
   background-image:
-    linear-gradient(rgba(96,165,250,0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(96,165,250,0.05) 1px, transparent 1px);
-  background-size: 56px 56px;
-  mask-image: radial-gradient(80% 60% at 50% 40%, #000 30%, transparent 100%);
+    linear-gradient(rgba(34,211,238,0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(34,211,238,0.08) 1px, transparent 1px),
+    /* Bold every-4th grid line for that "engineering blueprint" look */
+    linear-gradient(rgba(34,211,238,0.13) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(34,211,238,0.13) 1px, transparent 1px);
+  background-size: 32px 32px, 32px 32px, 128px 128px, 128px 128px;
+  mask-image: radial-gradient(90% 70% at 50% 50%, #000 40%, transparent 100%);
 }
 
 .starfield {
@@ -2160,4 +2179,148 @@ body.twk-flash .twk-panel { animation: twkFlash 1.1s ease-out 1; }
   :root:not([data-theme="dark"]):not([data-theme="light"]) {
     color-scheme: light dark;
   }
+}
+
+/* ─── M3.13: Cyber/HUD details (corner brackets, neon focus, mono chrome) ── */
+
+/* Tighten the deep-violet background to a true near-black for the
+   cyber look. The blue-tinted slate looked spacey; near-black with a
+   blue tint reads tech. */
+:root {
+  --bg-0: #02040a;
+  --bg-1: #050a18;
+  --bg-2: #0a1226;
+  --bg-3: #1a2647;
+  --text: #e3eeff;
+  --text-dim: rgba(227,238,255,0.72);
+  --text-mute: rgba(227,238,255,0.42);
+  /* Stronger hairlines that read as circuit traces, not soft borders. */
+  --hairline: rgba(34,211,238,0.18);
+  --hairline-strong: rgba(34,211,238,0.42);
+  --glass-bg: rgba(8, 16, 38, 0.78);
+  --glass-bg-strong: rgba(8, 16, 38, 0.92);
+  --glass-border: rgba(34,211,238,0.30);
+}
+
+/* Light theme stays clean / blueprint feel for cyber */
+[data-theme="light"] {
+  --bg-0: #e8eff7;
+  --bg-1: #d6e1ee;
+  --bg-2: #c2d3e6;
+  --bg-3: #94a8c0;
+  --text: #0a1226;
+  --text-dim: rgba(10,18,38,0.72);
+  --text-mute: rgba(10,18,38,0.45);
+  --hairline: rgba(37,99,235,0.22);
+  --hairline-strong: rgba(37,99,235,0.45);
+  --glass-bg: rgba(255,255,255,0.80);
+  --glass-bg-strong: rgba(255,255,255,0.95);
+  --glass-border: rgba(37,99,235,0.32);
+}
+
+/* HUD corner brackets — applied to the major panels (rails, composer, overlay) */
+.rail-section, .composer, .twk-panel, .jarvis-overlay-inner > .jarvis-transcript {
+  position: relative;
+}
+.rail-section::before, .rail-section::after,
+.composer::before, .composer::after {
+  content: "";
+  position: absolute;
+  width: 10px; height: 10px;
+  border: 1px solid var(--accent-2, var(--violet-500));
+  opacity: 0.5;
+  pointer-events: none;
+  transition: opacity 200ms;
+}
+/* Top-left + top-right brackets only — bottom would clutter on scrolling panels */
+.rail-section::before, .composer::before {
+  top: 0; left: 0;
+  border-right: none; border-bottom: none;
+}
+.rail-section::after, .composer::after {
+  top: 0; right: 0;
+  border-left: none; border-bottom: none;
+}
+.rail-section:hover::before, .rail-section:hover::after,
+.composer:focus-within::before, .composer:focus-within::after {
+  opacity: 1;
+  box-shadow: 0 0 6px var(--accent-2, var(--violet-500));
+}
+
+/* Neon focus ring on interactive elements */
+.icon-btn:hover, .composer-input:focus, .btn:focus, .branch:hover {
+  box-shadow:
+    0 0 0 1px var(--accent-2, var(--violet-500)),
+    0 0 10px rgba(34,211,238,0.45);
+  transition: box-shadow 120ms;
+}
+
+/* JARVIS toggle when active — pulsing cyber-cyan glow instead of violet breathe */
+.jarvis-toggle.active {
+  background: rgba(34,211,238,0.16);
+  color: var(--cyan-300);
+  box-shadow: 0 0 0 1px var(--cyan-400), 0 0 14px rgba(34,211,238,0.55);
+  animation: jarvisToggleCyber 1.6s ease-in-out infinite;
+}
+@keyframes jarvisToggleCyber {
+  0%, 100% { box-shadow: 0 0 0 1px var(--cyan-400), 0 0 14px rgba(34,211,238,0.55); }
+  50%      { box-shadow: 0 0 0 1px var(--cyan-300), 0 0 22px rgba(34,211,238,0.85); }
+}
+
+/* Brand mark gets a HUD reticle feel */
+.brand-name b {
+  color: var(--cyan-300);
+  font-family: var(--f-mono);
+  text-shadow: 0 0 8px rgba(34,211,238,0.55);
+  letter-spacing: 0.03em;
+}
+.brand-name { letter-spacing: 0.02em; }
+
+/* Topbar: thin neon underline */
+.topbar { border-bottom: 1px solid var(--hairline-strong); position: relative; }
+.topbar::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: -1px;
+  height: 1px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(34,211,238,0.55) 20%,
+    rgba(59,130,246,0.55) 50%,
+    rgba(34,211,238,0.55) 80%,
+    transparent 100%);
+  opacity: 0.4;
+}
+
+/* Session pulse — cleaner block-style status pip */
+.session-pulse {
+  width: 8px; height: 8px;
+  border-radius: 1px;             /* square-ish for cyber */
+  background: var(--success);
+  box-shadow: 0 0 6px currentColor;
+}
+.session-pulse.error { color: var(--danger); background: var(--danger); }
+.session-pulse.done  { color: var(--success); background: var(--success); }
+
+/* Code blocks: terminal-style with a cyber-cyan caret */
+.md-pre {
+  border: 1px solid rgba(34,211,238,0.25);
+  background: rgba(2,4,10,0.85);
+}
+.md-pre::before {
+  content: "▸";
+  position: absolute;
+  top: 6px; left: 8px;
+  color: var(--cyan-300);
+  font-family: var(--f-mono);
+  opacity: 0.5;
+  pointer-events: none;
+}
+.md-pre { position: relative; padding-left: 22px; }
+
+/* Composer textarea: monospace IS the chrome font now, no change needed,
+   but tighten the border + give it a clean focus ring */
+.composer-input {
+  font-family: var(--f-mono);
+  letter-spacing: -0.005em;
 }
