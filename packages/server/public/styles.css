@@ -157,7 +157,9 @@ body {
 }
 .shell {
   display: grid;
-  grid-template-columns: 280px 1fr 360px;
+  /* Default desktop layout uses the CSS variables set by app.jsx (resizable
+     rails). The mobile @media block below collapses to a single 1fr column. */
+  grid-template-columns: var(--shell-left-w, 280px) 4px 1fr 4px var(--shell-right-w, 360px);
   gap: 0;
   height: 100%;
   min-height: 0;
@@ -1487,13 +1489,19 @@ body[data-hide-tool-work="true"] .tool-chip[data-open="true"] {
   .token-meter:nth-child(2) { display: none; }
 }
 @media (max-width: 900px) {
-  .shell { grid-template-columns: 1fr 4px 320px; }
+  /* Hide left rail + its resizer; collapse left columns to zero so the
+     CenterStage gets that space. !important needed because the inline
+     CSS variables (--shell-left-w) would otherwise win the cascade. */
+  .shell {
+    grid-template-columns: 0 0 1fr 4px var(--shell-right-w, 320px) !important;
+  }
   .topbar { grid-template-columns: auto 1fr auto; }
   .rail.left { display: none; }
   .resizer:first-of-type { display: none; }
 }
 @media (max-width: 680px) {
-  .shell { grid-template-columns: 1fr; }
+  /* Phone: single column, no rails, no resizers. */
+  .shell { grid-template-columns: 1fr !important; }
   .rail.right { display: none; }
   .resizer { display: none; }
   .tabs { display: none; }
@@ -2006,8 +2014,21 @@ body.twk-flash .twk-panel { animation: twkFlash 1.1s ease-out 1; }
   .center-tab { padding: 6px 10px; font-size: 11px; min-height: 36px; }
 
   /* Chat thread: bigger text, more padding, comfortable scroll. */
-  .chat { padding: 12px 12px 120px; }       /* bottom padding clears composer */
+  .chat { padding: 12px 10px 120px; gap: 16px; }   /* bottom padding clears composer */
   .chat-bubble { font-size: 14px; line-height: 1.5; padding: 12px 14px; }
+
+  /* The chat messages need to use almost all the width — on phone the
+     default 88% max-width still leaves ~30px gutter which makes things
+     feel like a narrow column ("queue"). Push to 96% / 98% on mobile. */
+  .msg { max-width: 96%; gap: 8px; }
+  .msg.agent { max-width: 98%; }
+  .msg-avatar { width: 28px; height: 28px; font-size: 10px; }
+  .msg-bubble { padding: 10px 12px; font-size: 14.5px; line-height: 1.5; }
+  .msg .md-pre { font-size: 12px; }              /* code blocks legible */
+
+  /* Center container: kill the desktop padding so chat extends edge-to-edge. */
+  .center { padding: 0; gap: 0; }
+  .chat { padding: 12px 8px 132px; }             /* compact horizontal padding */
 
   /* Composer: sticky bottom + safe-area + 16px font (no zoom). */
   .composer {

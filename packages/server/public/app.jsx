@@ -76,7 +76,14 @@ const App = () => {
         <TopBar/>
         <div
           className="shell"
-          style={{ gridTemplateColumns: `${leftW}px 4px 1fr 4px ${rightW}px` }}
+          style={{
+            // CSS variables — media query in styles.css can override these
+            // on mobile (where rails are hidden and the grid collapses to
+            // a single column). Without variables, the inline grid-template-
+            // columns would always win and force the desktop layout.
+            '--shell-left-w': `${leftW}px`,
+            '--shell-right-w': `${rightW}px`,
+          }}
         >
           <LeftRail/>
           <Resizer side="left"  min={200} max={520} getCurrent={() => leftW}  onResize={setLeftW}/>
